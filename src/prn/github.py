@@ -207,7 +207,8 @@ class GitHubClient:
 
 
 def _login(actor: Optional[dict]) -> str:
-    return (actor or {}).get("login", "ghost").lower()
+    # GraphQL usually reports app logins without the REST-style "[bot]" suffix; normalize either way.
+    return ((actor or {}).get("login") or "ghost").lower().removesuffix("[bot]")
 
 
 def _is_bot(actor: Optional[dict]) -> bool:

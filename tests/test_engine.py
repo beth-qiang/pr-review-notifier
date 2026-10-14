@@ -107,6 +107,14 @@ def test_ignored_reviewers_dont_count(cfg):
     assert only_rabbit.has_reviews_from_others(ME, ignored=cfg.ignored_reviewer_logins()) is False
 
 
+def test_ignored_reviewers_match_with_or_without_bot_suffix(cfg):
+    # Mirrors app-workflow#35442: the only review is a CodeRabbit approval, reported with a "[bot]" suffix.
+    n = node(author="bob", reviews=[review("coderabbitai[bot]", "APPROVED", bot=True)])
+    for setting in (["coderabbitai"], ["coderabbitai[bot]"]):
+        cfg.settings.ignored_reviewers = setting
+        assert place(cfg, n) == "Teammates Need Review"
+
+
 def test_labels_ci_and_age_filters(cfg):
     from prn.config import parse
     c = parse("""
