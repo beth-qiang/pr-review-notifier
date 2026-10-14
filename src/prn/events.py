@@ -48,6 +48,7 @@ def snapshot_entry(pr: PR, section: Optional[str], me: str) -> dict:
         "comment_count": pr.comment_count,
         "requested_me": pr.requested_me_directly(me_l) or pr.requested_via_team(me_l) or pr.review_requested_from_me,
         "has_reviewed": pr.has_reviewed(me_l),
+        "my_review_state": pr.my_review_state(me_l),
     }
 
 
@@ -75,8 +76,13 @@ def diff(prev: dict[str, dict], results: list[SectionResult], all_prs: list[PR],
         cur = snapshot_entry(pr, section_of.get(pr.key), me)
         sec = cur["section"]
 
-        # 1. Entered a notifying section
-        if toggles.new_in_section and sec in notify_sections and (old is None or old.get("section") != sec):
+        # 1. Entered a notifying section (skip moves caused by my own review: I already know)
+        moved_by_me = old is not None and (
+            (cur["has_reviewed"] and not old.get("has_reviewed"))
+            or ("my_review_state" in old and cur["my_review_state"] != old["my_review_state"])
+        )
+        if (toggles.new_in_section and sec in notify_sections and not moved_by_me
+                and (old is None or old.get("section") != sec)):
             events.append(Event(NEW_IN_SECTION, pr, f"New in {sec}", sec))
 
         if not cur["is_mine"]:

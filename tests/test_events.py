@@ -51,6 +51,29 @@ def test_completing_review_removes_without_notifying(cfg):
     assert run(cfg, [before], [after], prev_requested={"PR_105"}) == []
 
 
+def test_my_own_review_move_is_silent(cfg):
+    before = node(author="alice", number=120)
+    after = node(author="alice", number=120, reviews=[review(ME, "COMMENTED")])
+    assert run(cfg, [before], [after]) == []
+
+
+def test_re_request_moves_back_with_one_notification(cfg):
+    reviewed = node(author="alice", number=121, reviews=[review(ME, "CHANGES_REQUESTED")])
+    again = node(author="alice", number=121, reviews=[review(ME, "CHANGES_REQUESTED")], req_users=[ME])
+    events = run(cfg, [reviewed], [again], requested={"PR_121"})
+    assert kinds(events) == [ev.NEW_IN_SECTION, ev.RE_REVIEW]
+    notes = ev.to_notifications(events)
+    assert len(notes) == 1 and "re-requested" in notes[0].title
+    assert "New in Teammates Need Review" in notes[0].message
+
+
+def test_others_move_still_notifies(cfg):
+    mine_reviewed = node(author="alice", number=122, reviews=[review(ME, "COMMENTED")])
+    # someone else approves → still in Reviewed Not Approved, no move → silent
+    assert run(cfg, [mine_reviewed], [node(author="alice", number=122,
+                                           reviews=[review(ME, "COMMENTED"), review("erin", "APPROVED")])]) == []
+
+
 def test_re_review_requested(cfg):
     reviewed = node(author="dave", number=106, reviews=[review(ME, "CHANGES_REQUESTED")])
     rerequested = node(author="dave", number=106, reviews=[review(ME, "CHANGES_REQUESTED")],

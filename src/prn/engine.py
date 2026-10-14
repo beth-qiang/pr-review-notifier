@@ -72,6 +72,14 @@ def matches(pr: PR, section: Section, cfg: Config, me: str, now: Optional[dateti
         if has != f.has_reviews_from_others:
             return False
 
+    if f.has_reviews is not None:
+        has = pr.has_reviews(me_l, ignore_bots=cfg.settings.ignore_bot_reviews, ignored=ignored)
+        if has != f.has_reviews:
+            return False
+
+    if f.awaiting_my_review is not None and pr.awaiting_my_review(me_l) != f.awaiting_my_review:
+        return False
+
     if f.labels:
         wanted = {l.lower() for l in f.labels}
         if not wanted & {l.lower() for l in pr.labels}:

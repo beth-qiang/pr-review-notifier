@@ -22,6 +22,38 @@ def test_teammate_changes_requested_by_other_still_needs_review(cfg):
     assert place(cfg, n) == "Teammates Need Review"
 
 
+def test_my_comment_review_moves_to_reviewed_not_approved(cfg):
+    for state in ("COMMENTED", "CHANGES_REQUESTED"):
+        n = node(author="alice", reviews=[review(ME, state)])
+        assert place(cfg, n) == "Teammates Reviewed Not Approved by Me", state
+
+
+def test_thread_reply_counts_as_my_review(cfg):
+    # replying in a review thread is recorded by GitHub as a COMMENTED review
+    n = node(author="alice", reviews=[review("erin", "COMMENTED"), review(ME, "COMMENTED")])
+    assert place(cfg, n) == "Teammates Reviewed Not Approved by Me"
+
+
+def test_direct_re_request_moves_back_to_need_review(cfg):
+    n = node(author="alice", reviews=[review(ME, "CHANGES_REQUESTED")], req_users=[ME])
+    assert place(cfg, n, requested_from_me=True) == "Teammates Need Review"
+
+
+def test_re_request_with_other_approval_stays_reviewed_not_approved(cfg):
+    n = node(author="alice", reviews=[review(ME, "COMMENTED"), review("erin", "APPROVED")], req_users=[ME])
+    assert place(cfg, n, requested_from_me=True) == "Teammates Reviewed Not Approved by Me"
+
+
+def test_lingering_team_request_does_not_count_as_re_request(cfg):
+    n = node(author="alice", reviews=[review(ME, "COMMENTED")], req_teams=["platform"])
+    assert place(cfg, n, requested_from_me=True) == "Teammates Reviewed Not Approved by Me"
+
+
+def test_re_request_after_i_approved_goes_to_direct_request(cfg):
+    n = node(author="alice", reviews=[review(ME, "APPROVED")], req_users=[ME])
+    assert place(cfg, n, requested_from_me=True) == "Direct Review Request"
+
+
 def test_teammate_draft_excluded(cfg):
     assert place(cfg, node(author="alice", draft=True)) is None
 

@@ -97,6 +97,8 @@ All filters in a section must match (AND). List values match if any item matches
 | `review_decision` | `approved` · `changes_requested` · `review_required` · `none` | GitHub's overall decision |
 | `approvals` | `{min: N, max: N}` | Count of current approving reviews |
 | `has_reviews_from_others` | `true` / `false` | Someone other than you and the author has reviewed |
+| `has_reviews` | `true` / `false` | Anyone other than the author has reviewed, including you |
+| `awaiting_my_review` | `true` / `false` | You haven't submitted any review yet, or your review was re-requested *directly* (pending team requests don't count) |
 | `draft` | `true` / `false` | |
 | `labels` / `exclude_labels` | names | Has any / has none (case-insensitive) |
 | `ci` | `success` · `failure` · `pending` · `none` | Rollup status of the latest commit |
@@ -108,7 +110,7 @@ Unknown keys or bad values are rejected. `prn config validate` tells you exactly
 
 | Event | When |
 |---|---|
-| New in section | A PR enters a section with `notify: true` (including moving between sections) |
+| New in section | A PR enters a section with `notify: true` (including moving between sections). Moves caused by your own review are silent |
 | Re-review requested | You'd reviewed, and the author requests your review again |
 | My PR status | Your PR's review decision changes, or someone else leaves a review or comment |
 | CI | Your PR's checks finish as passed or failed |

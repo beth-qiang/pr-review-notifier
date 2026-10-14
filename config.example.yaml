@@ -41,6 +41,7 @@ sections:
       authors: [group:teammates]
       draft: false
       approvals: { max: 0 }
+      awaiting_my_review: true      # not reviewed by me yet, or my review was re-requested
 
   - name: Teammates Reviewed Not Approved by Me
     notify: true
@@ -48,7 +49,7 @@ sections:
     filters:
       authors: [group:teammates]
       draft: false
-      has_reviews_from_others: true
+      has_reviews: true             # reviewed by me or someone else
       my_review: { not: approved }
 
   - name: Team Review Requested

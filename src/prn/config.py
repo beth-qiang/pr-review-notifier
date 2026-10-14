@@ -58,6 +58,8 @@ class Filters(_Strict):
     review_decision: Optional[ReviewDecision] = None
     approvals: Optional[Range] = None
     has_reviews_from_others: Optional[bool] = None
+    has_reviews: Optional[bool] = None          # anyone but the author (me included) has reviewed
+    awaiting_my_review: Optional[bool] = None   # I haven't reviewed yet, OR my review was re-requested directly
     draft: Optional[bool] = None
     labels: list[str] = Field(default_factory=list)          # PR has ANY of these
     exclude_labels: list[str] = Field(default_factory=list)  # PR has NONE of these

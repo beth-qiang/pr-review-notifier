@@ -234,6 +234,10 @@ def sections_add(
     min_approvals: Optional[int] = typer.Option(None),
     max_approvals: Optional[int] = typer.Option(None),
     has_reviews_from_others: Optional[bool] = typer.Option(None, "--has-reviews-from-others/--no-reviews-from-others"),
+    has_reviews: Optional[bool] = typer.Option(None, "--has-reviews/--no-reviews", help="Anyone but the author reviewed"),
+    awaiting_my_review: Optional[bool] = typer.Option(
+        None, "--awaiting-my-review/--not-awaiting-my-review",
+        help="Not reviewed by me yet, or my review was re-requested directly"),
     draft: Optional[bool] = typer.Option(None, "--draft/--not-draft"),
     labels: Optional[str] = typer.Option(None, help="Comma list (PR has any)"),
     exclude_labels: Optional[str] = typer.Option(None, help="Comma list"),
@@ -266,7 +270,8 @@ def sections_add(
             filters[key] = val
     for key, val in (("review_requested", review_requested), ("review_decision", review_decision),
                      ("ci", ci), ("updated_within_days", updated_within_days),
-                     ("has_reviews_from_others", has_reviews_from_others), ("draft", draft)):
+                     ("has_reviews_from_others", has_reviews_from_others), ("has_reviews", has_reviews),
+                     ("awaiting_my_review", awaiting_my_review), ("draft", draft)):
         if val is not None:
             filters[key] = val
     if my_review:

@@ -72,6 +72,14 @@ class PR:
         return any(r.author not in (me, author) and r.author not in ignored and not (ignore_bots and r.is_bot)
                    for r in everyone)
 
+    def has_reviews(self, me: str, ignore_bots: bool = False, ignored: frozenset[str] = frozenset()) -> bool:
+        """Anyone other than the author has submitted a review (including me)."""
+        return self.has_reviewed(me) or self.has_reviews_from_others(me, ignore_bots, ignored)
+
+    def awaiting_my_review(self, me: str) -> bool:
+        """True until I submit any review; becomes true again if my review is re-requested directly."""
+        return not self.has_reviewed(me) or self.requested_me_directly(me)
+
     def requested_me_directly(self, me: str) -> bool:
         return me.lower() in self.requested_users
 
