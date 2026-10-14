@@ -64,6 +64,7 @@ class Filters(_Strict):
     labels: list[str] = Field(default_factory=list)          # PR has ANY of these
     exclude_labels: list[str] = Field(default_factory=list)  # PR has NONE of these
     ci: Optional[CIState] = None
+    conflicts: Optional[bool] = None            # GitHub reports merge conflicts with the base branch
     updated_within_days: Optional[int] = Field(default=None, ge=1)
 
     @field_validator("repos", "exclude_repos")

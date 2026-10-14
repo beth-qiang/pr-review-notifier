@@ -102,6 +102,7 @@ All filters in a section must match (AND). List values match if any item matches
 | `draft` | `true` / `false` | |
 | `labels` / `exclude_labels` | names | Has any / has none (case-insensitive) |
 | `ci` | `success` · `failure` · `pending` · `none` | Rollup status of the latest commit |
+| `conflicts` | `true` / `false` | GitHub reports merge conflicts with the base branch. While GitHub is still computing, it counts as no conflicts |
 | `updated_within_days` | int | |
 
 Unknown keys or bad values are rejected. `prn config validate` tells you exactly where.

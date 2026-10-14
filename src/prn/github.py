@@ -66,7 +66,7 @@ def get_token() -> str:
 
 PR_FIELDS = """
 fragment PRFields on PullRequest {
-  id number title url isDraft createdAt updatedAt reviewDecision
+  id number title url isDraft createdAt updatedAt reviewDecision mergeable
   repository { nameWithOwner }
   author { __typename login }
   labels(first: 20) { nodes { name } }
@@ -252,6 +252,7 @@ def parse_pr(node: dict, requested_from_me: bool = False) -> PR:
         created_at=node["createdAt"],
         updated_at=node["updatedAt"],
         review_decision=(node.get("reviewDecision") or "none").lower(),
+        mergeable=(node.get("mergeable") or "unknown").lower(),
         ci=ci,
         labels=[l["name"] for l in (node.get("labels") or {}).get("nodes", []) if l],
         comment_count=(node.get("comments") or {}).get("totalCount", 0),

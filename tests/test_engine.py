@@ -164,3 +164,19 @@ sections:
            parse_pr(node(labels=["urgent"], ci="FAILURE", updated="2026-10-01T00:00:00Z"))]
     res = evaluate(prs, c, ME, now=now)
     assert [p.number for p in res[0].prs] == [hit["number"]]
+
+
+def test_conflicts_filter():
+    from prn.config import parse
+    c = parse("""
+defaults: {repos: [acme/web]}
+sections:
+  - name: Conflicting
+    filters: {conflicts: true}
+  - name: Clean
+    filters: {conflicts: false}
+""")
+    dirty, clean, unknown = node(mergeable="CONFLICTING"), node(), node(mergeable="UNKNOWN")
+    res = evaluate([parse_pr(n) for n in (dirty, clean, unknown)], c, ME)
+    assert [p.number for p in res[0].prs] == [dirty["number"]]
+    assert [p.number for p in res[1].prs] == [clean["number"], unknown["number"]]
