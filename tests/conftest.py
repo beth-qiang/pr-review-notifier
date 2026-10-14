@@ -46,8 +46,9 @@ def actor(login, bot=False):
     return {"__typename": "Bot" if bot else "User", "login": login}
 
 
-def review(login, state, bot=False):
-    return {"author": actor(login, bot), "state": state, "submittedAt": "2026-10-13T12:00:00Z"}
+def review(login, state, bot=False, commit=None):
+    return {"author": actor(login, bot), "state": state, "submittedAt": "2026-10-13T12:00:00Z",
+            "commit": {"oid": commit} if commit else None}
 
 
 def node(
@@ -66,6 +67,7 @@ def node(
     labels=(),
     updated="2026-10-14T09:00:00Z",
     title=None,
+    head="head-sha",
 ):
     """Build a GraphQL-shaped PullRequest node."""
     number = number or next(_ids)
@@ -97,5 +99,5 @@ def node(
         "reviews": {"totalCount": len(reviews), "nodes": reviews},
         "latestOpinionatedReviews": {"nodes": latest},
         "reviewRequests": {"nodes": rr},
-        "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": ci} if ci else None}}]},
+        "commits": {"nodes": [{"commit": {"oid": head, "statusCheckRollup": {"state": ci} if ci else None}}]},
     }

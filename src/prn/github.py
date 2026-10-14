@@ -73,10 +73,10 @@ fragment PRFields on PullRequest {
   comments(last: 20) { totalCount nodes { author { login } } }
   reviews(last: 60) {
     totalCount
-    nodes { author { __typename login } state submittedAt }
+    nodes { author { __typename login } state submittedAt commit { oid } }
   }
   latestOpinionatedReviews(first: 50) {
-    nodes { author { __typename login } state submittedAt }
+    nodes { author { __typename login } state submittedAt commit { oid } }
   }
   reviewRequests(first: 50) {
     nodes {
@@ -89,7 +89,7 @@ fragment PRFields on PullRequest {
       }
     }
   }
-  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+  commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
 }
 """
 
@@ -221,7 +221,8 @@ def _reviews(nodes: Iterable[dict]) -> list[Review]:
         if not n or n.get("state") == "PENDING":
             continue
         out.append(Review(author=_login(n.get("author")), state=n["state"],
-                          submitted_at=n.get("submittedAt"), is_bot=_is_bot(n.get("author"))))
+                          submitted_at=n.get("submittedAt"), is_bot=_is_bot(n.get("author")),
+                          commit=(n.get("commit") or {}).get("oid")))
     return out
 
 
@@ -235,7 +236,8 @@ def parse_pr(node: dict, requested_from_me: bool = False) -> PR:
             users.append(rev["login"].lower())
 
     commits = (node.get("commits") or {}).get("nodes") or []
-    rollup = ((commits[0] or {}).get("commit") or {}).get("statusCheckRollup") if commits else None
+    head = ((commits[0] or {}).get("commit") or {}) if commits else {}
+    rollup = head.get("statusCheckRollup")
     ci_raw = (rollup or {}).get("state")
     ci = {"SUCCESS": "success", "FAILURE": "failure", "ERROR": "failure",
           "PENDING": "pending", "EXPECTED": "pending"}.get(ci_raw or "", "none")
@@ -252,6 +254,7 @@ def parse_pr(node: dict, requested_from_me: bool = False) -> PR:
         created_at=node["createdAt"],
         updated_at=node["updatedAt"],
         review_decision=(node.get("reviewDecision") or "none").lower(),
+        head_oid=head.get("oid") or "",
         ci=ci,
         labels=[l["name"] for l in (node.get("labels") or {}).get("nodes", []) if l],
         comment_count=(node.get("comments") or {}).get("totalCount", 0),

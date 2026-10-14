@@ -164,3 +164,19 @@ sections:
            parse_pr(node(labels=["urgent"], ci="FAILURE", updated="2026-10-01T00:00:00Z"))]
     res = evaluate(prs, c, ME, now=now)
     assert [p.number for p in res[0].prs] == [hit["number"]]
+
+
+def test_awaiting_approval_from_requires_approval_on_latest_commit():
+    from prn.config import parse
+    c = parse("""
+defaults: {repos: [acme/web]}
+sections:
+  - name: Waiting on CodeRabbit
+    filters: {awaiting_approval_from: ["coderabbitai[bot]"]}
+""")
+    approved_head = node(reviews=[review("coderabbitai", "APPROVED", bot=True, commit="head-sha")])
+    approved_old = node(reviews=[review("coderabbitai", "APPROVED", bot=True, commit="old-sha")])
+    commented_head = node(reviews=[review("coderabbitai", "COMMENTED", bot=True, commit="head-sha")])
+    never = node()
+    res = evaluate([parse_pr(n) for n in (approved_head, approved_old, commented_head, never)], c, ME)
+    assert [p.number for p in res[0].prs] == [approved_old["number"], commented_head["number"], never["number"]]
