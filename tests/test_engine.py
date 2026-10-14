@@ -93,6 +93,20 @@ def test_bot_reviews_toggle(cfg):
     assert pr.has_reviews_from_others(ME, ignore_bots=False) is True
 
 
+def test_ignored_reviewers_dont_count(cfg):
+    rabbit_approved = node(author="bob", reviews=[review("coderabbitai", "APPROVED", bot=True)])
+    rabbit_commented = node(author="bob", reviews=[review("coderabbitai", "COMMENTED", bot=True)],
+                            latest=[review("erin", "APPROVED")])
+    # Without the setting, CodeRabbit's approval moves the PR out of "Need Review"
+    assert place(cfg, rabbit_approved) == "Teammates Reviewed Not Approved by Me"
+    cfg.settings.ignored_reviewers = ["CodeRabbitAI[bot]"]  # case and [bot] suffix are normalized
+    assert place(cfg, rabbit_approved) == "Teammates Need Review"
+    # A real approval still counts; CodeRabbit alone isn't "reviews from others"
+    assert place(cfg, rabbit_commented) == "Teammates Reviewed Not Approved by Me"
+    only_rabbit = parse_pr(node(author="bob", reviews=[review("coderabbitai", "COMMENTED", bot=True)]))
+    assert only_rabbit.has_reviews_from_others(ME, ignored=cfg.ignored_reviewer_logins()) is False
+
+
 def test_labels_ci_and_age_filters(cfg):
     from prn.config import parse
     c = parse("""

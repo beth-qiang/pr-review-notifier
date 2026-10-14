@@ -11,6 +11,7 @@ settings:
   hide_empty_sections: true       # in the menu bar dropdown
   max_title_length: 50            # truncation in the menu bar dropdown
   ignore_bot_reviews: false       # if true, bot reviews (e.g. Copilot) don't count as "reviews from others"
+  ignored_reviewers: []           # logins whose reviews never count toward approvals / has_reviews_from_others
   notifications:
     new_in_section: true          # a PR enters a section that has `notify: true`
     re_review_requested: true     # someone re-requests your review after you've reviewed

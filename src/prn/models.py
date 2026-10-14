@@ -48,8 +48,8 @@ class PR:
     def short_repo(self) -> str:
         return self.repo.split("/", 1)[-1]
 
-    def approvals(self) -> int:
-        return sum(1 for r in self.latest_reviews if r.state == "APPROVED")
+    def approvals(self, ignored: frozenset[str] = frozenset()) -> int:
+        return sum(1 for r in self.latest_reviews if r.state == "APPROVED" and r.author not in ignored)
 
     def my_review_state(self, me: str) -> str:
         """Latest opinionated review (approved/changes_requested/dismissed), else commented, else none."""
@@ -65,10 +65,12 @@ class PR:
         me = me.lower()
         return any(r.author == me for r in self.reviews) or any(r.author == me for r in self.latest_reviews)
 
-    def has_reviews_from_others(self, me: str, ignore_bots: bool = False) -> bool:
+    def has_reviews_from_others(self, me: str, ignore_bots: bool = False,
+                                ignored: frozenset[str] = frozenset()) -> bool:
         me, author = me.lower(), self.author
         everyone = self.reviews + self.latest_reviews
-        return any(r.author not in (me, author) and not (ignore_bots and r.is_bot) for r in everyone)
+        return any(r.author not in (me, author) and r.author not in ignored and not (ignore_bots and r.is_bot)
+                   for r in everyone)
 
     def requested_me_directly(self, me: str) -> bool:
         return me.lower() in self.requested_users

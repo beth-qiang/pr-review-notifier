@@ -94,6 +94,8 @@ class Settings(_Strict):
     hide_empty_sections: bool = True
     max_title_length: int = Field(default=50, ge=10)
     ignore_bot_reviews: bool = False   # don't count bot reviews for has_reviews_from_others
+    # Reviewers whose reviews never count toward `approvals` or `has_reviews_from_others`
+    ignored_reviewers: list[str] = Field(default_factory=list)
     notifications: NotificationToggles = Field(default_factory=NotificationToggles)
 
 
@@ -127,6 +129,10 @@ class Config(_Strict):
                 if who.startswith("group:") and who[6:] not in self.groups:
                     raise ValueError(f"section '{s.name}' references unknown group '{who}'")
         return self
+
+    def ignored_reviewer_logins(self) -> frozenset[str]:
+        """Lowercase logins; a trailing '[bot]' is dropped because GraphQL reports app logins without it."""
+        return frozenset(u.lower().removesuffix("[bot]").lstrip("@") for u in self.settings.ignored_reviewers)
 
     def section_repos(self, section: Section) -> list[str]:
         repos = section.filters.repos or self.defaults.repos

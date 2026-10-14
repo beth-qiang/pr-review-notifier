@@ -68,6 +68,7 @@ settings:
   hide_empty_sections: true    # menu bar only
   max_title_length: 50
   ignore_bot_reviews: false
+  ignored_reviewers: [coderabbitai]   # never count toward approvals / has_reviews_from_others
   notifications: { new_in_section: true, re_review_requested: true, my_pr_status: true, ci_status: true }
 
 defaults:

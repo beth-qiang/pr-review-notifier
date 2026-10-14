@@ -58,15 +58,17 @@ def matches(pr: PR, section: Section, cfg: Config, me: str, now: Optional[dateti
     if f.review_decision is not None and pr.review_decision != f.review_decision:
         return False
 
+    ignored = cfg.ignored_reviewer_logins()
+
     if f.approvals is not None:
-        n = pr.approvals()
+        n = pr.approvals(ignored)
         if f.approvals.min is not None and n < f.approvals.min:
             return False
         if f.approvals.max is not None and n > f.approvals.max:
             return False
 
     if f.has_reviews_from_others is not None:
-        has = pr.has_reviews_from_others(me_l, ignore_bots=cfg.settings.ignore_bot_reviews)
+        has = pr.has_reviews_from_others(me_l, ignore_bots=cfg.settings.ignore_bot_reviews, ignored=ignored)
         if has != f.has_reviews_from_others:
             return False
 
