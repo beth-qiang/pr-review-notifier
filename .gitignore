@@ -1,0 +1,17 @@
+# Personal config (created by ./setup.sh from config.example.yaml)
+config.yaml
+config.yaml.bak*
+
+# Local planning notes
+PLAN.md
+
+# Python / tooling
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+uv.lock
+.DS_Store

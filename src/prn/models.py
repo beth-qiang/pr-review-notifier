@@ -1,0 +1,90 @@
+"""Normalized PR model, independent of the GitHub response shape."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from typing import Optional
+
+
+@dataclass
+class Review:
+    author: str          # lowercase login
+    state: str           # APPROVED | CHANGES_REQUESTED | COMMENTED | DISMISSED
+    submitted_at: Optional[str] = None
+    is_bot: bool = False
+
+
+@dataclass
+class PR:
+    id: str
+    repo: str            # owner/name
+    number: int
+    title: str
+    url: str
+    author: str          # lowercase login ('ghost' if deleted)
+    is_draft: bool
+    created_at: str
+    updated_at: str
+    review_decision: str                     # approved | changes_requested | review_required | none
+    ci: str                                  # success | failure | pending | none
+    labels: list[str] = field(default_factory=list)
+    comment_count: int = 0
+    recent_comment_authors: list[str] = field(default_factory=list)  # last 20, oldest first
+    review_count: int = 0
+    reviews: list[Review] = field(default_factory=list)            # full history, oldest first
+    latest_reviews: list[Review] = field(default_factory=list)     # latest opinionated per reviewer
+    requested_users: list[str] = field(default_factory=list)       # lowercase logins
+    requested_teams: list[str] = field(default_factory=list)       # org/slug
+    review_requested_from_me: bool = False   # GitHub's `review-requested:@me` (direct OR via my team)
+
+    # ---------------------------------------------------------- derived helpers
+
+    @property
+    def key(self) -> str:
+        return f"{self.repo}#{self.number}"
+
+    @property
+    def short_repo(self) -> str:
+        return self.repo.split("/", 1)[-1]
+
+    def approvals(self) -> int:
+        return sum(1 for r in self.latest_reviews if r.state == "APPROVED")
+
+    def my_review_state(self, me: str) -> str:
+        """Latest opinionated review (approved/changes_requested/dismissed), else commented, else none."""
+        me = me.lower()
+        for r in self.latest_reviews:
+            if r.author == me and r.state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+                return r.state.lower()
+        if any(r.author == me for r in self.reviews):
+            return "commented"
+        return "none"
+
+    def has_reviewed(self, me: str) -> bool:
+        me = me.lower()
+        return any(r.author == me for r in self.reviews) or any(r.author == me for r in self.latest_reviews)
+
+    def has_reviews_from_others(self, me: str, ignore_bots: bool = False) -> bool:
+        me, author = me.lower(), self.author
+        everyone = self.reviews + self.latest_reviews
+        return any(r.author not in (me, author) and not (ignore_bots and r.is_bot) for r in everyone)
+
+    def requested_me_directly(self, me: str) -> bool:
+        return me.lower() in self.requested_users
+
+    def requested_via_team(self, me: str) -> bool:
+        return self.review_requested_from_me and not self.requested_me_directly(me) and bool(self.requested_teams)
+
+    def updated_dt(self) -> datetime:
+        return datetime.fromisoformat(self.updated_at.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "PR":
+        d = dict(d)
+        d["reviews"] = [Review(**r) for r in d.get("reviews", [])]
+        d["latest_reviews"] = [Review(**r) for r in d.get("latest_reviews", [])]
+        return cls(**d)

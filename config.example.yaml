@@ -1,0 +1,85 @@
+# prn configuration: EXAMPLE
+#
+# Don't edit this file for your own use. Run ./setup.sh, which copies it to ./config.yaml
+# (gitignored) and walks you through repos, teammates, sections, and notifications.
+# After editing config.yaml by hand, run `prn config validate`. The daemon picks up changes on its next poll.
+
+settings:
+  poll_interval_seconds: 300      # minimum 60
+  open_with: github               # where PR links open
+  notifier: terminal-notifier     # terminal-notifier (click opens PR) | osascript
+  hide_empty_sections: true       # in the menu bar dropdown
+  max_title_length: 50            # truncation in the menu bar dropdown
+  ignore_bot_reviews: false       # if true, bot reviews (e.g. Copilot) don't count as "reviews from others"
+  notifications:
+    new_in_section: true          # a PR enters a section that has `notify: true`
+    re_review_requested: true     # someone re-requests your review after you've reviewed
+    my_pr_status: true            # your PR: review decision changes, new review, or new comment
+    ci_status: true               # your PR: CI moves to success or failure
+
+defaults:
+  # Every section searches these repos unless it sets its own `repos:`.
+  repos:
+    - your-org/repo-one
+    - your-org/repo-two
+
+groups:
+  # Reference a group in authors / exclude_authors as `group:<name>`.
+  teammates:
+    - teammate-one
+    - teammate-two
+
+# Sections are evaluated top to bottom; a PR appears only in the FIRST section it matches.
+# notify: send a desktop notification when a PR newly enters this section
+# badge:  count this section's PRs in the menu bar number
+sections:
+  - name: Teammates Need Review
+    notify: true
+    badge: true
+    filters:
+      authors: [group:teammates]
+      draft: false
+      approvals: { max: 0 }
+
+  - name: Teammates Reviewed Not Approved by Me
+    notify: true
+    badge: true
+    filters:
+      authors: [group:teammates]
+      draft: false
+      has_reviews_from_others: true
+      my_review: { not: approved }
+
+  - name: Team Review Requested
+    notify: true
+    badge: true
+    filters:
+      review_requested: team      # requested from a team you're on, not you directly
+      exclude_authors: ["@me"]
+
+  - name: Direct Review Request
+    notify: true
+    badge: true
+    filters:
+      review_requested: me        # you were requested directly as a reviewer
+
+  - name: My Approved PRs
+    notify: true
+    badge: false
+    filters:
+      authors: ["@me"]
+      review_decision: approved
+
+  - name: My Open PRs
+    notify: false
+    badge: false
+    filters:
+      authors: ["@me"]
+      draft: false
+
+  - name: My Draft PRs
+    notify: false
+    badge: false
+    filters:
+      authors: ["@me"]
+      draft: true
