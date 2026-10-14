@@ -182,10 +182,17 @@ default_config_text = example_config_text  # backwards-compatible alias
 
 def _format_validation_error(err: ValidationError) -> str:
     lines = []
+    unknown_keys = False
     for e in err.errors():
         loc = ".".join(str(p) for p in e["loc"])
         lines.append(f"  - {loc or '<root>'}: {e['msg']}")
-    return "Invalid config:\n" + "\n".join(lines)
+        unknown_keys = unknown_keys or e.get("type") == "extra_forbidden"
+    msg = "Invalid config:\n" + "\n".join(lines)
+    if unknown_keys:
+        msg += ("\n\nIf that key is a typo, fix it. If it's a newer setting, your installed prn is older than the "
+                "repo: run `uv tool install --force --reinstall <repo>` then `prn daemon restart` "
+                "(or re-run ./setup.sh and choose 'keep').")
+    return msg
 
 
 def parse(text: str) -> Config:

@@ -82,3 +82,10 @@ def test_editor_rejects_invalid_and_leaves_file_untouched():
     with pytest.raises(config_mod.ConfigError):
         ed.save()
     assert paths.config_path().read_text() == before
+
+
+def test_unknown_key_error_suggests_reinstall():
+    import pytest as _pytest
+    with _pytest.raises(config_mod.ConfigError) as exc:
+        config_mod.parse("defaults: {repos: [a/b]}\nsections: [{name: a, filters: {awaiting_my_reviw: true}}]")
+    assert "awaiting_my_reviw" in str(exc.value) and "--reinstall" in str(exc.value)
