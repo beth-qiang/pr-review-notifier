@@ -16,6 +16,22 @@ class Review:
     commit: Optional[str] = None   # oid of the commit the review was submitted against
 
 
+def has_new_activity(seen: dict, now: dict) -> bool:
+    """True if `now` shows something new since `seen`. Changes caused by me (a request
+    disappearing after I review, CI going back to pending) don't count."""
+    if now["last_review_by_others"] > seen.get("last_review_by_others", ""):
+        return True
+    if now["comments_by_others"] > seen.get("comments_by_others", 0):
+        return True
+    if now["head"] != seen.get("head", ""):
+        return True
+    if now["ci"] and now["ci"] != seen.get("ci", ""):
+        return True
+    if now["requested_me"] and not seen.get("requested_me", False):
+        return True
+    return now.get("section") != seen.get("section")
+
+
 @dataclass
 class PR:
     id: str
@@ -65,6 +81,19 @@ class PR:
         login = login.lower().removesuffix("[bot]")
         return any(r.author == login and r.state == "APPROVED" and r.commit == self.head_oid
                    for r in self.reviews + self.latest_reviews)
+
+    def activity(self, me: str) -> dict:
+        """What other people have done on the PR. Compared against the copy saved when I last opened it."""
+        me = me.lower()
+        others = [r.submitted_at or "" for r in self.reviews if r.author != me]
+        mine = self.author == me
+        return {
+            "last_review_by_others": max(others, default=""),
+            "comments_by_others": self.comment_count - self.recent_comment_authors.count(me),
+            "head": "" if mine else self.head_oid,          # my own pushes aren't news to me
+            "ci": self.ci if mine and self.ci in ("success", "failure") else "",
+            "requested_me": self.requested_me_directly(me),
+        }
 
     def my_review_state(self, me: str) -> str:
         """Latest opinionated review (approved/changes_requested/dismissed), else commented, else none."""

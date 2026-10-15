@@ -94,7 +94,7 @@ if rumps is not None:
             icon = _icon_path()
             super().__init__(APP_NAME, title=None if icon else "PR", icon=icon, template=True, quit_button=None)
             self._hide_dock_icon()
-            self._last_mtime = -1.0
+            self._last_mtime: tuple[float, float] = (-1.0, -1.0)
             self._poller = PollThread()
             self._watcher = watch.ChangeWatcher()
             self._render_timer = rumps.Timer(self._maybe_render, 3)
@@ -144,7 +144,7 @@ if rumps is not None:
 
         def _maybe_render(self, _timer=None) -> None:
             self._check_changes()
-            mtime = store.inbox_mtime()
+            mtime = (store.inbox_mtime(), store.seen_mtime())
             if mtime != self._last_mtime:
                 self._last_mtime = mtime
                 self._render(store.read_inbox())
@@ -173,6 +173,7 @@ if rumps is not None:
                     self.menu.add(rumps.MenuItem(f"⚠ {fmt.truncate(inbox.error, 70)}"))
                     self.menu.add(rumps.separator)
                 shown = 0
+                seen = store.read_seen() if settings.read_tracking else None
                 for sec in inbox.sections:
                     if not sec.prs and settings.hide_empty_sections:
                         continue
@@ -181,9 +182,11 @@ if rumps is not None:
                     shown += 1
                     self.menu.add(rumps.MenuItem(f"{sec.name} ({len(sec.prs)})"))
                     for pr in sec.prs:
-                        segments = menu_style.pr_segments(pr, settings.max_title_length)
+                        read = seen is not None and not store.is_unread(seen, pr, sec.name, inbox.me)
+                        segments = menu_style.pr_segments(pr, settings.max_title_length, read=read)
                         item = rumps.MenuItem(menu_style.plain(segments), callback=self._open_pr)
                         item._prn_url = pr.url  # type: ignore[attr-defined]
+                        item._prn_seen = (pr, sec.name)  # type: ignore[attr-defined]
                         self.menu.add(item)
                         menu_style.apply(item, segments)  # native colors; plain text if unavailable
                 if not shown:
@@ -217,6 +220,13 @@ if rumps is not None:
             url = getattr(sender, "_prn_url", None)
             if url:
                 webbrowser.open(url)
+            inbox = getattr(self, "_inbox", None)
+            seen = getattr(sender, "_prn_seen", None)
+            if inbox and seen and self._settings().read_tracking:
+                try:
+                    store.mark_read([seen], inbox.me, live_keys={p.key for s in inbox.sections for p in s.prs})
+                except Exception:
+                    log.exception("couldn't mark %s read", seen[0].key)
 
         def _refresh(self, _sender) -> None:
             self._status_item.title = "Refreshing…"

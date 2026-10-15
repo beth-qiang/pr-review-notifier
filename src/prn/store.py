@@ -13,7 +13,7 @@ from typing import Iterator, Optional
 
 from . import paths
 from .engine import SectionResult
-from .models import PR
+from .models import PR, has_new_activity
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
@@ -122,6 +122,51 @@ def read_snapshot() -> Optional[dict[str, dict]]:
 
 def write_snapshot(prs: dict[str, dict]) -> None:
     _atomic_write_json(paths.snapshot_path(), {"written_at": time.time(), "prs": prs})
+
+
+# ---------------------------------------------------------------- read state
+
+SEEN_TTL_SECONDS = 30 * 24 * 3600
+
+
+def seen_mtime() -> float:
+    try:
+        return paths.seen_path().stat().st_mtime
+    except FileNotFoundError:
+        return 0.0
+
+
+def read_seen() -> dict[str, dict]:
+    data = _read_json(paths.seen_path())
+    return (data or {}).get("prs", {})
+
+
+def _seen_entry(pr: PR, section: str, me: str) -> dict:
+    return {**pr.activity(me), "section": section, "at": time.time()}
+
+
+def is_unread(seen: dict[str, dict], pr: PR, section: str, me: str) -> bool:
+    entry = seen.get(pr.key)
+    return entry is None or has_new_activity(entry, {**pr.activity(me), "section": section})
+
+
+def mark_read(items: list[tuple[PR, str]], me: str, live_keys: Optional[set[str]] = None) -> None:
+    """Record each (PR, section) as I see it now. Entries older than 30 days are dropped
+    unless the PR is still in the inbox (`live_keys`)."""
+    seen = read_seen()
+    for pr, section in items:
+        seen[pr.key] = _seen_entry(pr, section, me)
+    cutoff = time.time() - SEEN_TTL_SECONDS
+    live = live_keys or set()
+    seen = {k: v for k, v in seen.items() if k in live or v.get("at", 0) >= cutoff}
+    _atomic_write_json(paths.seen_path(), {"prs": seen})
+
+
+def mark_unread(keys: list[str]) -> None:
+    seen = read_seen()
+    for k in keys:
+        seen.pop(k, None)
+    _atomic_write_json(paths.seen_path(), {"prs": seen})
 
 
 # ---------------------------------------------------------------- lock

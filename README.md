@@ -55,7 +55,7 @@ This stops the menu bar app, removes the login item and the PR Review Notifier a
 
 | Command | What it does |
 |---|---|
-| `prn` | Interactive inbox. `↑/↓` move, `Enter` opens on GitHub, `y` copies the URL, `r` refreshes, `/` filters, `q` quits |
+| `prn` | Interactive inbox. `↑/↓` move, `Enter` opens on GitHub, `y` copies the URL, `m` toggles read/unread, `M` marks everything read, `r` refreshes, `/` filters, `q` quits. See [Read and unread](#read-and-unread) |
 | `prn list [-s NAME] [--json] [-r]` | Print the inbox (optionally refresh first) |
 | `prn refresh` | Poll now. Use it after finishing reviews so the inbox updates right away |
 | `prn sections list` | Sections in evaluation order |
@@ -70,6 +70,26 @@ This stops the menu bar app, removes the login item and the PR Review Notifier a
 
 **How the inbox stays current.** The menu bar app polls GitHub every `poll_interval_seconds` (default 300). Each poll rewrites `~/.local/state/prn/inbox.json`, and both the TUI and the menu bar redraw when that file changes. When you finish a review, the PR moves or disappears on the next poll. To skip the wait, press `r` in the TUI, choose **Refresh now** in the menu bar, or run `prn refresh`.
 
+### Read and unread
+
+Once you've looked at a PR, it fades so new activity stands out. This works in both the TUI and the menu bar dropdown.
+
+- **A PR becomes read** when you open it from the TUI (`Enter` or `o`) or click it in the menu bar. In the TUI, `m` toggles the selected PR between read and unread, and `M` marks everything shown as read. The status bar counts the PRs that are new.
+- **A read PR is muted.** Its row keeps the CI and review colours, but everything is drawn fainter.
+- **It comes back to full brightness only when something new happens on it.** That means one of these:
+  - someone else reviews or comments
+  - new commits on someone else's PR
+  - CI passes or fails on your PR
+  - your review is requested directly
+  - the PR moves to a different section
+- **Your own activity doesn't count.** Your comments and reviews, your pushes to your own PRs, and a review request disappearing because you reviewed all leave it dimmed.
+- **Every PR starts unread.** Press `M` once to start from a clean slate.
+- **Clicking a desktop notification doesn't mark the PR read**, because macOS doesn't report the click to prn. Use `m` instead.
+
+**Don't want it?** Set `read_tracking: false` under `settings`. Every row then stays at full brightness, opening a PR doesn't mark it read, and `m`/`M` and the "new" count go away. Both views pick up the change within a few seconds. Turning it back on keeps your earlier read state.
+
+Read state lives in `~/.local/state/prn/seen.json`. An entry is removed once its PR has left the inbox for 30 days. If the PR comes back after that, it shows as unread.
+
 ## Config reference
 
 Your config is `./config.yaml` (run `prn config path` to confirm). Saving it triggers a re-poll within about 3 seconds, so no restart is needed. See `config.example.yaml` for a fully commented example.
@@ -80,6 +100,7 @@ settings:
   notifier: terminal-notifier  # or osascript (notifications won't be clickable)
   hide_empty_sections: true    # menu bar only
   max_title_length: 50
+  read_tracking: true          # fade PRs you've opened; false turns it off everywhere
   ignore_bot_reviews: false
   ignored_reviewers: [coderabbitai]   # never count toward approvals / has_reviews_from_others
   notifications: { new_in_section: true, re_review_requested: true, my_pr_status: true, ci_status: true }

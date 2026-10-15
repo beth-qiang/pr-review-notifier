@@ -66,6 +66,11 @@ def snapshot_path() -> Path:
     return state_dir() / "snapshot.json"
 
 
+def seen_path() -> Path:
+    """What each PR looked like when I last opened it. Rows with nothing new since then are faded."""
+    return state_dir() / "seen.json"
+
+
 def lock_path() -> Path:
     return state_dir() / "poll.lock"
 

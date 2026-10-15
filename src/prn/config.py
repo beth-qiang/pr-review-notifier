@@ -100,6 +100,7 @@ class Settings(_Strict):
     notifier: Literal["terminal-notifier", "osascript"] = "terminal-notifier"
     hide_empty_sections: bool = True
     max_title_length: int = Field(default=50, ge=10)
+    read_tracking: bool = True         # fade PRs you've opened until there's new activity on them
     ignore_bot_reviews: bool = False   # don't count bot reviews for has_reviews_from_others
     # Reviewers whose reviews never count toward `approvals` or `has_reviews_from_others`
     ignored_reviewers: list[str] = Field(default_factory=list)
