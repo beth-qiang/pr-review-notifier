@@ -23,7 +23,9 @@ def _domain() -> str:
 
 
 def prn_executable() -> str:
-    exe = shutil.which("prn")
+    if os.environ.get("PRN_EXECUTABLE"):  # set by the app bundle's launch.sh
+        return os.environ["PRN_EXECUTABLE"]
+    exe = shutil.which("prn") or shutil.which("prn", path=str(Path.home() / ".local" / "bin"))
     if exe:
         return exe
     argv0 = Path(sys.argv[0]).resolve()
@@ -33,17 +35,27 @@ def prn_executable() -> str:
 
 
 def build_plist(exe: str) -> dict:
+    from . import macapp
+
     log = str(paths.state_dir() / "menubar.out.log")
+    if macapp.is_installed():
+        # Run from inside "PR Review Notifier.app" so macOS shows our name instead of "Python",
+        # and tie the login item to the app so Login Items shows its name and icon too.
+        program = [str(macapp.launch_script())]
+        extra = {"AssociatedBundleIdentifiers": [macapp.APP_ID]}
+    else:
+        program, extra = [exe, "menubar"], {}
     return {
         "Label": LABEL,
-        "ProgramArguments": [exe, "menubar"],
+        **extra,
+        "ProgramArguments": program,
         "RunAtLoad": True,
         "KeepAlive": {"SuccessfulExit": False},   # restart on crash, not on Quit
         "ProcessType": "Interactive",
         "StandardOutPath": log,
         "StandardErrorPath": log,
         "EnvironmentVariables": {
-            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "PATH": f"{Path.home()}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         },
     }
 

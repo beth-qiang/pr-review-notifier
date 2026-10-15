@@ -1,6 +1,6 @@
-# prn: PR Review Notifier
+# PR Review Notifier (`prn`)
 
-A local GitHub PR inbox for macOS. It has a menu bar icon with a dropdown, desktop notifications, and an interactive terminal inbox. Sections and filters live in a YAML file you can edit by hand. It's modeled on Graphite's inbox.
+A local GitHub PR inbox for macOS. The command is `prn`, short for **PR Review Notifier**; `pr-review-notifier` works too. It has a menu bar icon with a dropdown, desktop notifications, and an interactive terminal inbox. Sections and filters live in a YAML file you can edit by hand. It's modeled on Graphite's inbox.
 
 ## Install
 
@@ -13,16 +13,16 @@ git clone <this repo> && cd pr-review-notifier
 
 `setup.sh` is interactive and safe to re-run. It:
 
-1. Checks for Homebrew, [uv](https://docs.astral.sh/uv/), the GitHub CLI (`gh`), and `terminal-notifier`, and offers to install anything missing. It asks before installing each one.
+1. Checks for Homebrew, [uv](https://docs.astral.sh/uv/), the GitHub CLI (`gh`), and `terminal-notifier` (all required), and offers to install anything missing. It asks before installing each one.
 2. Makes sure `gh` is logged in with the `read:org` scope. prn reuses the `gh` token, so it never stores a token of its own.
-3. Installs the `prn` command with `uv tool install`, and offers to add uv's bin directory to your PATH.
+3. Installs the `prn` command (and its long alias, `pr-review-notifier`) with `uv tool install`, and offers to add uv's bin directory to your PATH.
 4. Runs the setup wizard (`prn setup`), which creates `./config.yaml` from `config.example.yaml`. The wizard asks for:
    - **Repos to watch.** It checks that you have access to each one.
    - **Teammates.** It suggests the people whose PRs you've reviewed most in the last 90 days.
    - **Which starter sections to keep.**
    - **Poll interval and notification types.**
 5. Runs a first poll, which records the current state silently so you don't get a burst of notifications.
-6. Sends a test notification, installs the menu bar app as a login item, and runs `prn doctor`.
+6. Builds the **PR Review Notifier** macOS app (see below), sends a test notification, installs the menu bar app as a login item, and runs `prn doctor`.
 
 If `./config.yaml` already exists, re-running setup lets you **keep** it (reinstall and restart only), **reconfigure** it with your current values as defaults, or start **fresh** from the example. Before overwriting, it backs up the old file to `config.yaml.bak-<timestamp>`.
 
@@ -30,13 +30,22 @@ If `./config.yaml` already exists, re-running setup lets you **keep** it (reinst
 
 **Config changes apply on save:** when you save `config.yaml`, the menu bar app validates it and re-polls within about 3 seconds. If the file is invalid, you get one notification with the error, the menu bar shows ⚠, and the last good inbox stays visible until you fix it.
 
+### Why there's a "PR Review Notifier.app"
+
+macOS labels notifications, Login Items, and Activity Monitor entries with the app a process runs from. A plain Python process shows up as **Python**. To show **PR Review Notifier** and its icon instead, `prn app install` (run by setup) builds `~/Library/Application Support/PR Review Notifier/PR Review Notifier.app`, which contains:
+
+- **The menu bar app.** The login item runs it from inside the bundle, using a copy of prn's Python interpreter. If that copy ever can't start (for example after a Python upgrade), it falls back to plain `prn menubar`. Re-run `prn app install` to rebuild it.
+- **A branded notifier.** This is a renamed copy of `terminal-notifier` that sends every notification, so they read "PR Review Notifier" and clicking one opens the PR.
+
+The first notification may ask permission. Allow it under System Settings → Notifications → **PR Review Notifier**. Run `prn test-notification` at any time to check.
+
 ### Uninstall
 
 ```bash
 ./uninstall.sh
 ```
 
-This stops the menu bar app, removes the login item, and runs `uv tool uninstall prn`. It then asks whether to delete `config.yaml` and its backups (default: keep), whether to delete cached state and logs (default: delete), and whether to uninstall `terminal-notifier` (default: keep). It never removes `gh`, `uv`, or Homebrew.
+This stops the menu bar app, removes the login item and the PR Review Notifier app, and runs `uv tool uninstall prn`. It then asks whether to delete `config.yaml` and its backups (default: keep), whether to delete cached state and logs (default: delete), and whether to uninstall `terminal-notifier` (default: keep). It never removes `gh`, `uv`, or Homebrew.
 
 ### Your config stays private
 
@@ -55,6 +64,8 @@ This stops the menu bar app, removes the login item, and runs `uv tool uninstall
 | `prn setup` | Re-run the configuration wizard on its own |
 | `prn config edit` / `validate` / `path` / `use PATH` | Edit in `$EDITOR`, then validate. Show or change the active config file |
 | `prn daemon install / uninstall / restart / status / logs -f` | Manage the login item |
+| `prn app install / uninstall / status` | Build or remove the PR Review Notifier app (notification sender and menu bar app) |
+| `prn test-notification` | Send a test notification |
 | `prn doctor` | Health check |
 
 **How the inbox stays current.** The menu bar app polls GitHub every `poll_interval_seconds` (default 300). Each poll rewrites `~/.local/state/prn/inbox.json`, and both the TUI and the menu bar redraw when that file changes. When you finish a review, the PR moves or disappears on the next poll. To skip the wait, press `r` in the TUI, choose **Refresh now** in the menu bar, or run `prn refresh`.
@@ -139,7 +150,8 @@ uv run pytest
 
 - **No menu bar icon:** run `prn daemon status` and `prn daemon logs`, or run `prn menubar` in a terminal to see errors directly.
 - **"gh not found" from the daemon:** launchd uses a minimal PATH. prn also checks `/opt/homebrew/bin` and `/usr/local/bin`. If `gh` is installed somewhere else, set `GITHUB_TOKEN` in the plist's `EnvironmentVariables`.
-- **Notifications don't appear:** in System Settings → Notifications, allow *terminal-notifier* (or *Script Editor* when using osascript).
+- **Notifications don't appear:** in System Settings → Notifications, allow **PR Review Notifier**. Then run `prn test-notification`. If `prn doctor` says the app isn't built, run `prn app install`.
+- **Notifications or Login Items still say "Python":** the app bundle isn't being used. Run `prn app install`, which also points the login item at the app.
 - **Team Review Requested is empty:** your `gh` token needs `read:org`. Check with `gh auth status`, and fix with `gh auth refresh -s read:org`.
 
 ## Smoke test (first run on your Mac)

@@ -1,7 +1,7 @@
 [project]
 name = "prn"
 version = "0.1.0"
-description = "PR Review Notifier: a local GitHub PR inbox with a macOS menu bar app, notifications, and a TUI"
+description = "PR Review Notifier (prn): a local GitHub PR inbox with a macOS menu bar app, notifications, and a TUI"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -19,6 +19,7 @@ dev = ["pytest>=8", "respx>=0.21"]
 
 [project.scripts]
 prn = "prn.cli:app"
+pr-review-notifier = "prn.cli:app"
 
 [build-system]
 requires = ["hatchling"]

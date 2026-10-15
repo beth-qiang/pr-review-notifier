@@ -1,4 +1,4 @@
-"""`prn` command-line entrypoint."""
+"""Command-line entrypoint for PR Review Notifier (`prn`, also installed as `pr-review-notifier`)."""
 
 from __future__ import annotations
 
@@ -13,11 +13,12 @@ from rich.console import Console
 from rich.table import Table
 
 from . import config as config_mod
-from . import fmt, launchd, logs, paths, poller, store
+from . import fmt, launchd, logs, macapp, notify, paths, poller, store
 from .github import AuthError, GitHubClient, GitHubError, find_binary, get_token
 
 app = typer.Typer(
-    help="prn: a local GitHub PR inbox with menu bar + notifications. Run with no command to open the TUI.",
+    help="PR Review Notifier (prn): a local GitHub PR inbox with a menu bar app and desktop notifications. "
+         "Run with no command to open the interactive inbox. `pr-review-notifier` is the same command.",
     invoke_without_command=True,
     no_args_is_help=False,
     add_completion=False,
@@ -25,9 +26,12 @@ app = typer.Typer(
 sections_app = typer.Typer(help="List, add, remove, and reorder inbox sections.", no_args_is_help=True)
 config_app = typer.Typer(help="Create, edit, and validate the config file.", no_args_is_help=True)
 daemon_app = typer.Typer(help="Run the menu bar app at login via launchd.", no_args_is_help=True)
+app_bundle_app = typer.Typer(help="Build the macOS app bundle so notifications and Login Items say "
+                                  "\"PR Review Notifier\" instead of Python.", no_args_is_help=True)
 app.add_typer(sections_app, name="sections")
 app.add_typer(config_app, name="config")
 app.add_typer(daemon_app, name="daemon")
+app.add_typer(app_bundle_app, name="app")
 
 console = Console()
 err = Console(stderr=True)
@@ -148,6 +152,7 @@ def menubar():
 def doctor():
     """Check gh auth, token, notifier, config, and daemon."""
     ok = True
+    console.print(f"[bold]{macapp.APP_NAME}[/bold] (prn) health check\n")
 
     def line(good: bool, label: str, detail: str = ""):
         nonlocal ok
@@ -167,7 +172,7 @@ def doctor():
         line(False, "GitHub auth", str(exc))
 
     tn = find_binary("terminal-notifier")
-    line(bool(tn), "terminal-notifier installed", tn or "brew install terminal-notifier (falls back to osascript)")
+    line(bool(tn), "terminal-notifier installed", tn or "required: brew install terminal-notifier")
 
     try:
         cfg = config_mod.load()
@@ -181,6 +186,8 @@ def doctor():
             line(True, "rumps available")
         except ImportError:
             line(False, "rumps available", "reinstall prn on macOS")
+        line(macapp.is_installed(), f"{macapp.APP_NAME}.app built",
+             str(macapp.app_path()) if macapp.is_installed() else "run `prn app install` (or ./setup.sh)")
         st = launchd.status()
         line(st["installed"] and st["running"], "Menu bar daemon",
              ("running pid " + str(st["pid"])) if st["running"] else
@@ -386,6 +393,45 @@ def config_edit():
 
 
 # ---------------------------------------------------------------- daemon
+
+
+@app.command("test-notification")
+def test_notification():
+    """Send a test desktop notification."""
+    settings = config_mod.load().settings if paths.config_path().exists() else config_mod.Settings()
+    sent = notify.send_test(settings.notifier)
+    via = notify.notifier_binary(settings.notifier) or "osascript"
+    console.print(("[green]✓[/green] sent" if sent else "[red]✗[/red] failed to send") + f" [dim](via {via})[/dim]")
+    raise typer.Exit(0 if sent else 1)
+
+
+@app_bundle_app.command("install")
+def app_install():
+    """Build "PR Review Notifier.app" (menu bar app + branded notifier). Re-run after a Python upgrade."""
+    try:
+        p = macapp.build()
+    except (macapp.AppBuildError, RuntimeError) as exc:
+        _fail(str(exc))
+    console.print(f"[green]✓[/green] built {p}")
+    if launchd.status()["installed"]:
+        launchd.install()  # point the login item at the app
+        console.print("[green]✓[/green] menu bar app restarted from the bundle")
+
+
+@app_bundle_app.command("uninstall")
+def app_uninstall():
+    """Remove the app bundle. The login item falls back to plain `prn menubar`."""
+    removed = macapp.uninstall()
+    console.print("[green]✓[/green] removed" if removed else "nothing to remove")
+    if launchd.status()["installed"]:
+        launchd.install()
+
+
+@app_bundle_app.command("status")
+def app_status():
+    """Show whether the app bundle is built."""
+    console.print(f"built: {macapp.is_installed()}  path: {macapp.app_path()}  "
+                  f"notifier: {macapp.helper_binary() or '-'}")
 
 
 @daemon_app.command("install")

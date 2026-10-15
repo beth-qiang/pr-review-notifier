@@ -22,7 +22,7 @@ confirm() {
   [[ "$reply" =~ ^[Yy] ]]
 }
 
-printf '%sprn uninstall%s\n' "$bold" "$reset"
+printf '%sPR Review Notifier (prn) uninstall%s\n' "$bold" "$reset"
 
 # Work out where the config lives before removing the pointer to it.
 CONFIG="$REPO_DIR/config.yaml"
@@ -36,8 +36,19 @@ launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || launchctl unload -w "$PLI
 if [[ -f "$PLIST" ]]; then rm -f "$PLIST"; info "Removed $PLIST"; else info "No login item installed."; fi
 pkill -f "prn menubar" 2>/dev/null || true
 
+# ------------------------------------------------------------------ 1b. the macOS app bundle
+APP_ROOT="$HOME/Library/Application Support/PR Review Notifier"
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+if [[ -d "$APP_ROOT" ]]; then
+  for bundle in "$APP_ROOT/PR Review Notifier.app/Contents/Helpers/PR Review Notifier.app" "$APP_ROOT/PR Review Notifier.app"; do
+    [[ -d "$bundle" && -x "$LSREGISTER" ]] && "$LSREGISTER" -u "$bundle" 2>/dev/null || true
+  done
+  rm -rf "$APP_ROOT"
+  info "Removed the PR Review Notifier app"
+fi
+
 # ------------------------------------------------------------------ 2. the prn command
-step "Removing the prn command"
+step "Removing the prn / pr-review-notifier commands"
 if have uv && uv tool list 2>/dev/null | grep -q '^prn '; then
   uv tool uninstall prn
 else
@@ -75,11 +86,11 @@ rmdir "$HOME/.config/prn" 2>/dev/null || true
 if have brew && brew list --formula terminal-notifier >/dev/null 2>&1; then
   step "Optional dependencies"
   info "gh, uv, and Homebrew are left alone (other tools rely on them)."
-  if confirm "Uninstall terminal-notifier (installed for prn's clickable notifications)?" N; then
+  if confirm "Uninstall terminal-notifier (installed for PR Review Notifier's notifications)?" N; then
     brew uninstall terminal-notifier
   fi
 fi
 
-printf '\n%s✓ prn has been uninstalled.%s\n' "$green" "$reset"
+printf '\n%s✓ PR Review Notifier has been uninstalled.%s\n' "$green" "$reset"
 [[ -f "$CONFIG" ]] && info "Your config is still at $CONFIG"
 info "You can delete this folder ($REPO_DIR) whenever you like."

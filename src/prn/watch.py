@@ -105,4 +105,6 @@ class ChangeWatcher:
 
 def restart_self() -> None:
     """Replace this process with a fresh `prn menubar` running the new code."""
-    os.execv(sys.executable, [sys.executable, "-m", "prn", "menubar"])
+    # Re-run exactly how we were started: `prn menubar` or the bundled
+    # "PR Review Notifier" interpreter with `-m prn menubar`.
+    os.execv(sys.executable, [sys.executable, *sys.orig_argv[1:]])
