@@ -18,6 +18,7 @@ from . import fmt, poller, store
 from .models import PR
 
 CI_STYLE = {"success": "green", "failure": "red", "pending": "yellow", "none": "dim"}
+REVIEW_MARK = {"approved": ("◆", "green"), "changes_requested": ("◆", "red")}
 
 
 class PRNTui(App):
@@ -35,6 +36,8 @@ class PRNTui(App):
         Binding("enter", "open", "Open", show=True, priority=False),
         Binding("o", "open", "Open", show=False),
         Binding("y", "copy", "Copy URL"),
+        Binding("m", "toggle_read", "Read/unread"),
+        Binding("M", "mark_all_read", "All read"),
         Binding("r", "refresh", "Refresh"),
         Binding("slash", "filter", "Filter"),
         Binding("escape", "clear_filter", "Clear filter", show=False),
@@ -46,6 +49,9 @@ class PRNTui(App):
         self._inbox: Optional[store.Inbox] = None
         self._mtime = -1.0
         self._prs: dict[str, PR] = {}
+        self._section_of: dict[str, str] = {}
+        self._unread: set[str] = set()
+        self._seen_mtime = -1.0
         self._filter = ""
         self._refreshing = False
 
@@ -58,6 +64,7 @@ class PRNTui(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.query_one("#list", OptionList).focus()
         self._reload(force=True)
         self.set_interval(2, self._reload)
         self.set_interval(15, self._update_status)
@@ -67,10 +74,10 @@ class PRNTui(App):
     # ---------------------------------------------------------------- data
 
     def _reload(self, force: bool = False) -> None:
-        mtime = store.inbox_mtime()
-        if not force and mtime == self._mtime:
+        mtime, seen_mtime = store.inbox_mtime(), store.seen_mtime()
+        if not force and mtime == self._mtime and seen_mtime == self._seen_mtime:
             return
-        self._mtime = mtime
+        self._mtime, self._seen_mtime = mtime, seen_mtime
         self._inbox = store.read_inbox()
         self._render_list()
         self._update_status()
@@ -91,9 +98,13 @@ class PRNTui(App):
                 highlighted_id = None
         ol.clear_options()
         self._prs.clear()
+        self._section_of.clear()
+        self._unread.clear()
         if self._inbox is None:
             ol.add_option(Option(Text("No data yet. Press r to refresh.", style="dim"), disabled=True))
             return
+        seen = store.read_seen()
+        me = self._inbox.me
         first_pr_index = None
         for sec in self._inbox.sections:
             visible = [p for p in sec.prs if self._matches_filter(p)]
@@ -103,16 +114,26 @@ class PRNTui(App):
             ol.add_option(Option(header, disabled=True))
             for pr in visible:
                 self._prs[pr.key] = pr
+                self._section_of[pr.key] = sec.name
+                unread = store.is_unread(seen, pr, sec.name, me)
+                if unread:
+                    self._unread.add(pr.key)
+                title = fmt.truncate(pr.title, 70) + ("  (draft)" if pr.is_draft else "")
+                mark, mark_style = REVIEW_MARK.get(pr.review_decision, (" ", ""))
+                if unread:
+                    styles = (CI_STYLE.get(pr.ci, ""), "cyan", "" if pr.is_draft else "bold", "dim")
+                else:
+                    styles = ("dim", "dim", "dim", "dim")
                 line = Text.assemble(
                     "   ",
-                    (fmt.CI_GLYPH.get(pr.ci, " "), CI_STYLE.get(pr.ci, "")),
+                    (fmt.CI_GLYPH.get(pr.ci, " "), styles[0]),
                     " ",
-                    {"approved": ("◆", "green"), "changes_requested": ("◆", "red")}.get(pr.review_decision, " "),
+                    (mark, mark_style if unread else "dim"),
                     " ",
-                    (f"{fmt.pr_label(pr):<28}", "cyan"),
-                    (fmt.truncate(pr.title, 70), "bold" if not pr.is_draft else "dim"),
-                    (f"  @{pr.author}", "dim"),
-                    (f"  {fmt.ago(pr.updated_at)}", "dim"),
+                    (f"{fmt.pr_label(pr):<28}", styles[1]),
+                    (title, styles[2]),
+                    (f"  @{pr.author}", styles[3]),
+                    (f"  {fmt.ago(pr.updated_at)}", styles[3]),
                 )
                 ol.add_option(Option(line, id=pr.key))
                 if first_pr_index is None:
@@ -145,7 +166,9 @@ class PRNTui(App):
             ("PR Review Notifier", "bold magenta"),
             "  ·  ",
             (f"@{inbox.me}", "bold"),
-            f"  ·  {inbox.badge_count} need attention  ·  {inbox.total} total",
+            f"  ·  {inbox.badge_count} need attention  ·  ",
+            (f"{len(self._unread)} new", "bold" if self._unread else ""),
+            f"  ·  {inbox.total} total",
             f"  ·  updated {fmt.ago(inbox.generated_at) if inbox.generated_at else '?'}",
             f"  ·  next poll in {fmt.until(inbox.next_poll_at)}",
         ]
@@ -203,7 +226,7 @@ class PRNTui(App):
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         pr = self._prs.get(event.option.id) if event.option.id else None
         if pr:
-            webbrowser.open(pr.url)
+            self._open(pr)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self._filter = event.value
@@ -214,10 +237,34 @@ class PRNTui(App):
 
     # ---------------------------------------------------------------- actions
 
+    def _open(self, pr: PR) -> None:
+        webbrowser.open(pr.url)
+        self._mark_read([pr])
+
+    def _mark_read(self, prs: list[PR]) -> None:
+        if not self._inbox:
+            return
+        store.mark_read([(p, self._section_of[p.key]) for p in prs], self._inbox.me,
+                        live_keys={p.key for s in self._inbox.sections for p in s.prs})
+        self._reload(force=True)
+
     def action_open(self) -> None:
         pr = self._current_pr()
         if pr:
-            webbrowser.open(pr.url)
+            self._open(pr)
+
+    def action_toggle_read(self) -> None:
+        pr = self._current_pr()
+        if not pr:
+            return
+        if pr.key in self._unread:
+            self._mark_read([pr])
+        else:
+            store.mark_unread([pr.key])
+            self._reload(force=True)
+
+    def action_mark_all_read(self) -> None:
+        self._mark_read([self._prs[k] for k in self._unread])
 
     def action_copy(self) -> None:
         pr = self._current_pr()

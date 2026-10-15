@@ -7,7 +7,7 @@ AppKit isn't available, the plain text is used unchanged.
 Row layout:   ✓ ◆ web#123  Title of the PR…  · author
               │ └ review: ◆ green = approved, ◆ red = changes requested
               └ CI: ✓ green = passed, ✗ red = failed, ● orange = running
-Draft PRs are shown dimmed.
+Draft PRs are shown dimmed. So is every part of a row I've already opened, until something new happens on it.
 """
 
 from __future__ import annotations
@@ -24,10 +24,11 @@ REVIEW_MARK = {"approved": ("◆", "green"), "changes_requested": ("◆", "red")
 LEGEND = "✓ ✗ ● CI   ◆ approved / changes requested"
 
 
-def pr_segments(pr: PR, max_title: int) -> list[Segment]:
+def pr_segments(pr: PR, max_title: int, read: bool = False) -> list[Segment]:
+    """`read`: I've opened it and nothing new has happened since, so the whole row is dimmed."""
     title_role = "dim" if pr.is_draft else "normal"
     mark, mark_role = REVIEW_MARK.get(pr.review_decision, (" ", "normal"))
-    return [
+    segments = [
         ("   ", "normal"),
         (fmt.CI_GLYPH.get(pr.ci, " "), CI_ROLE.get(pr.ci, "normal")),
         (" ", "normal"),
@@ -36,6 +37,7 @@ def pr_segments(pr: PR, max_title: int) -> list[Segment]:
         (fmt.truncate(pr.title, max_title) + ("  (draft)" if pr.is_draft else ""), title_role),
         (f"  · {pr.author}", "dim"),
     ]
+    return [(text, "dim") for text, _ in segments] if read else segments
 
 
 def plain(segments: Iterable[Segment]) -> str:
