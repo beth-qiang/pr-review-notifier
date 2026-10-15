@@ -26,7 +26,9 @@ git clone <this repo> && cd pr-review-notifier
 
 If `./config.yaml` already exists, re-running setup lets you **keep** it (reinstall and restart only), **reconfigure** it with your current values as defaults, or start **fresh** from the example. Before overwriting, it backs up the old file to `config.yaml.bak-<timestamp>`.
 
-To upgrade after pulling changes, re-run `./setup.sh` and choose **keep**.
+**Upgrading:** setup installs prn in editable mode, so `git pull` is all you need. The menu bar app notices the code change, checks that the new code imports, and restarts itself within a few seconds. If the new code fails to import, it keeps running the old version and sends a notification. Re-run `./setup.sh` (choose **keep**) only when `pyproject.toml` dependencies change.
+
+**Config changes apply on save:** when you save `config.yaml`, the menu bar app validates it and re-polls within about 3 seconds. If the file is invalid, you get one notification with the error, the menu bar shows ⚠, and the last good inbox stays visible until you fix it.
 
 ### Uninstall
 
@@ -59,7 +61,7 @@ This stops the menu bar app, removes the login item, and runs `uv tool uninstall
 
 ## Config reference
 
-Your config is `./config.yaml` (run `prn config path` to confirm). The daemon reloads it on every poll, so no restart is needed. See `config.example.yaml` for a fully commented example.
+Your config is `./config.yaml` (run `prn config path` to confirm). Saving it triggers a re-poll within about 3 seconds, so no restart is needed. See `config.example.yaml` for a fully commented example.
 
 ```yaml
 settings:

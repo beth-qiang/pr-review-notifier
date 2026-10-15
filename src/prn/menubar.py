@@ -13,7 +13,7 @@ from importlib import resources
 from typing import Optional
 
 from . import config as config_mod
-from . import fmt, paths, poller, store
+from . import fmt, notify, paths, poller, store, watch
 from .launchd import prn_executable
 
 log = logging.getLogger(__name__)
@@ -87,6 +87,7 @@ if rumps is not None:
             self._hide_dock_icon()
             self._last_mtime = -1.0
             self._poller = PollThread()
+            self._watcher = watch.ChangeWatcher()
             self._render_timer = rumps.Timer(self._maybe_render, 3)
             self._render(store.read_inbox())
 
@@ -105,7 +106,35 @@ if rumps is not None:
 
         # ------------------------------------------------------------ rendering
 
+        def _check_changes(self) -> None:
+            """Re-poll when config.yaml is saved; restart when prn's code changes."""
+            try:
+                res = self._watcher.check()
+            except Exception:
+                log.exception("change watcher failed")
+                return
+            if res.repoll:
+                log.info("config changed: re-polling")
+                self._status_item.title = "Config changed, refreshing…"
+                self._poller.trigger()
+            if res.config_error:
+                log.warning("config changed but is invalid: %s", res.config_error)
+                store.write_inbox_error(fmt.truncate(" ".join(res.config_error.split()), 150)
+                                        + " (see `prn config validate`)")
+                notify.send("prn config error", "Keeping your last good inbox",
+                            fmt.truncate(" ".join(res.config_error.split()), 200),
+                            group="prn-config", notifier=self._settings().notifier)
+            if res.code_error:
+                log.error("updated code failed to import, still running the old code: %s", res.code_error)
+                notify.send("prn update failed to load", "Still running the previous version",
+                            fmt.truncate(res.code_error, 200) + " (if dependencies changed, re-run ./setup.sh)",
+                            group="prn-code", notifier=self._settings().notifier)
+            if res.restart:
+                log.info("code changed: restarting menu bar app")
+                watch.restart_self()
+
         def _maybe_render(self, _timer=None) -> None:
+            self._check_changes()
             mtime = store.inbox_mtime()
             if mtime != self._last_mtime:
                 self._last_mtime = mtime

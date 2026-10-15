@@ -96,7 +96,9 @@ info "Logged in as $(gh api user --jq .login 2>/dev/null || echo '?')"
 
 # ------------------------------------------------------------------ 3. install prn
 step "Installing prn"
-uv tool install --force --reinstall --quiet "$REPO_DIR"
+# Editable install: prn runs straight from ./src, so `git pull` or local edits take effect
+# without reinstalling, and the menu bar app restarts itself when the code changes.
+uv tool install --force --reinstall --quiet --editable "$REPO_DIR"
 BIN_DIR="$(uv tool dir --bin)"
 PRN="$BIN_DIR/prn"
 [[ -x "$PRN" ]] || die "prn was not installed to $BIN_DIR"
