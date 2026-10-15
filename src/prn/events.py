@@ -67,7 +67,8 @@ _DECISION_TEXT = {
 def diff(prev: dict[str, dict], results: list[SectionResult], all_prs: list[PR], cfg: Config, me: str) -> list[Event]:
     toggles = cfg.settings.notifications
     me_l = me.lower()
-    notify_sections = {s.name for s in cfg.sections if s.notify}
+    # Hidden sections (display: false) never notify; you can't see the PR anywhere in the inbox.
+    notify_sections = {s.name for s in cfg.sections if s.notify and s.display}
     section_of = {pr.key: r.name for r in results for pr in r.prs}
     events: list[Event] = []
 

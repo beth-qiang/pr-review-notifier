@@ -81,7 +81,7 @@ sections:                                      # evaluated top-down; first match
   - name: Teammates Need Review
     notify: true      # notify when a PR newly enters this section
     badge: true       # count toward the menu bar number
-    display: true     # false: still claims matching PRs, but hides the section from the menu bar, `prn`, and `prn list`
+    display: true     # false: still claims matching PRs, but hides the section from the menu bar, `prn`, and `prn list` (and never sends "New in section" notifications)
     filters: { authors: [group:teammates], draft: false, approvals: { max: 0 } }
 ```
 
