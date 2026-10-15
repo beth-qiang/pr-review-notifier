@@ -64,7 +64,7 @@ def write_inbox(results: list[SectionResult], me: str, next_poll_at: Optional[fl
         generated_at=time.time(),
         next_poll_at=next_poll_at,
         error=error,
-        sections=[InboxSection(r.name, r.notify, r.badge, r.prs) for r in results],
+        sections=[InboxSection(r.name, r.notify, r.badge, r.prs) for r in results if r.display],
     )
     _atomic_write_json(paths.inbox_path(), {
         "me": inbox.me,
