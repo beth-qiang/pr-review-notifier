@@ -34,10 +34,11 @@ def test_drafts_are_dimmed_and_labeled():
     assert "(draft)" in menu_style.plain(segs)
 
 
-def test_read_rows_are_dimmed_throughout():
+def test_read_rows_keep_their_colors_but_muted():
     pr = parse_pr(node(ci="FAILURE", decision="APPROVED", title="Seen it"))
     segs = menu_style.pr_segments(pr, 50, read=True)
-    assert all(role == "dim" for _, role in segs)
+    r = roles(segs)
+    assert r["✗"] == "red muted" and r["◆"] == "green muted" and r["Seen it"] == "normal muted"
     assert menu_style.plain(segs) == menu_style.plain(menu_style.pr_segments(pr, 50))
 
 

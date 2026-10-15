@@ -129,20 +129,19 @@ class PRNTui(App):
                     self._unread.add(pr.key)
                 title = fmt.truncate(pr.title, 70) + ("  (draft)" if pr.is_draft else "")
                 mark, mark_style = REVIEW_MARK.get(pr.review_decision, (" ", ""))
-                if unread:
-                    styles = (CI_STYLE.get(pr.ci, ""), "cyan", "" if pr.is_draft else "bold", "dim")
-                else:
-                    styles = ("dim", "dim", "dim", "dim")
+                styles = (CI_STYLE.get(pr.ci, ""), mark_style, "cyan", "" if pr.is_draft or not unread else "bold", "dim")
+                if not unread:
+                    styles = tuple(f"{s} dim".strip() for s in styles)
                 line = Text.assemble(
                     "   ",
                     (fmt.CI_GLYPH.get(pr.ci, " "), styles[0]),
                     " ",
-                    (mark, mark_style if unread else "dim"),
+                    (mark, styles[1]),
                     " ",
-                    (f"{fmt.pr_label(pr):<28}", styles[1]),
-                    (title, styles[2]),
-                    (f"  @{pr.author}", styles[3]),
-                    (f"  {fmt.ago(pr.updated_at)}", styles[3]),
+                    (f"{fmt.pr_label(pr):<28}", styles[2]),
+                    (title, styles[3]),
+                    (f"  @{pr.author}", styles[4]),
+                    (f"  {fmt.ago(pr.updated_at)}", styles[4]),
                 )
                 ol.add_option(Option(line, id=pr.key))
                 if first_pr_index is None:

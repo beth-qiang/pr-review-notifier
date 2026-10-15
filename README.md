@@ -75,7 +75,7 @@ This stops the menu bar app, removes the login item and the PR Review Notifier a
 Once you've looked at a PR, it fades so new activity stands out. This works in both the TUI and the menu bar dropdown.
 
 - **A PR becomes read** when you open it from the TUI (`Enter` or `o`) or click it in the menu bar. In the TUI, `m` toggles the selected PR between read and unread, and `M` marks everything shown as read. The status bar counts the PRs that are new.
-- **A read PR is dimmed** across the whole row.
+- **A read PR is muted.** Its row keeps the CI and review colours, but everything is drawn fainter.
 - **It comes back to full brightness only when something new happens on it.** That means one of these:
   - someone else reviews or comments
   - new commits on someone else's PR

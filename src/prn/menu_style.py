@@ -7,7 +7,7 @@ AppKit isn't available, the plain text is used unchanged.
 Row layout:   ✓ ◆ web#123  Title of the PR…  · author
               │ └ review: ◆ green = approved, ◆ red = changes requested
               └ CI: ✓ green = passed, ✗ red = failed, ● orange = running
-Draft PRs are shown dimmed. So is every part of a row I've already opened, until something new happens on it.
+Draft PRs are shown dimmed. A row I've already opened keeps its colors at half opacity until something new happens on it.
 """
 
 from __future__ import annotations
@@ -22,10 +22,12 @@ Segment = tuple[str, str]  # (text, role)
 CI_ROLE = {"success": "green", "failure": "red", "pending": "orange"}
 REVIEW_MARK = {"approved": ("◆", "green"), "changes_requested": ("◆", "red")}
 LEGEND = "✓ ✗ ● CI   ◆ approved / changes requested"
+MUTED = "muted"
+MUTED_ALPHA = 0.5
 
 
 def pr_segments(pr: PR, max_title: int, read: bool = False) -> list[Segment]:
-    """`read`: I've opened it and nothing new has happened since, so the whole row is dimmed."""
+    """`read`: I've opened it and nothing new has happened since, so every segment is muted (same hue, faded)."""
     title_role = "dim" if pr.is_draft else "normal"
     mark, mark_role = REVIEW_MARK.get(pr.review_decision, (" ", "normal"))
     segments = [
@@ -37,7 +39,7 @@ def pr_segments(pr: PR, max_title: int, read: bool = False) -> list[Segment]:
         (fmt.truncate(pr.title, max_title) + ("  (draft)" if pr.is_draft else ""), title_role),
         (f"  · {pr.author}", "dim"),
     ]
-    return [(text, "dim") for text, _ in segments] if read else segments
+    return [(text, f"{role} {MUTED}") for text, role in segments] if read else segments
 
 
 def plain(segments: Iterable[Segment]) -> str:
@@ -46,12 +48,14 @@ def plain(segments: Iterable[Segment]) -> str:
 
 def _color(role: str):
     from AppKit import NSColor  # type: ignore
-    return {
+    base, _, modifier = role.partition(" ")
+    color = {
         "green": NSColor.systemGreenColor,
         "red": NSColor.systemRedColor,
         "orange": NSColor.systemOrangeColor,
         "dim": NSColor.secondaryLabelColor,
-    }.get(role, NSColor.labelColor)()
+    }.get(base, NSColor.labelColor)()
+    return color.colorWithAlphaComponent_(color.alphaComponent() * MUTED_ALPHA) if modifier == MUTED else color
 
 
 def apply(menu_item, segments: list[Segment]) -> bool:
