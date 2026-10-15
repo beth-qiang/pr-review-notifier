@@ -185,3 +185,19 @@ sections:
     inbox = store.read_inbox()
     assert [s.name for s in inbox.sections] == ["Everything"]
     assert [p.number for p in inbox.sections[0].prs] == [clean["number"]]
+
+
+def test_conflicts_filter():
+    from prn.config import parse
+    c = parse("""
+defaults: {repos: [acme/web]}
+sections:
+  - name: Conflicting
+    filters: {conflicts: true}
+  - name: Clean
+    filters: {conflicts: false}
+""")
+    dirty, clean, unknown = node(mergeable="CONFLICTING"), node(), node(mergeable="UNKNOWN")
+    res = evaluate([parse_pr(n) for n in (dirty, clean, unknown)], c, ME)
+    assert [p.number for p in res[0].prs] == [dirty["number"]]
+    assert [p.number for p in res[1].prs] == [clean["number"], unknown["number"]]

@@ -93,6 +93,9 @@ def matches(pr: PR, section: Section, cfg: Config, me: str, now: Optional[dateti
     if f.ci is not None and pr.ci != f.ci:
         return False
 
+    if f.conflicts is not None and (pr.mergeable == "conflicting") != f.conflicts:
+        return False
+
     if f.updated_within_days is not None:
         now = now or datetime.now(timezone.utc)
         if pr.updated_dt() < now - timedelta(days=f.updated_within_days):
