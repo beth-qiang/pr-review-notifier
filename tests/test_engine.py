@@ -201,3 +201,19 @@ sections:
     res = evaluate([parse_pr(n) for n in (dirty, clean, unknown)], c, ME)
     assert [p.number for p in res[0].prs] == [dirty["number"]]
     assert [p.number for p in res[1].prs] == [clean["number"], unknown["number"]]
+
+
+def test_awaiting_approval_from_requires_approval_on_latest_commit():
+    from prn.config import parse
+    c = parse("""
+defaults: {repos: [acme/web]}
+sections:
+  - name: Waiting on CodeRabbit
+    filters: {awaiting_approval_from: ["coderabbitai[bot]"]}
+""")
+    approved_head = node(reviews=[review("coderabbitai", "APPROVED", bot=True, commit="head-sha")])
+    approved_old = node(reviews=[review("coderabbitai", "APPROVED", bot=True, commit="old-sha")])
+    commented_head = node(reviews=[review("coderabbitai", "COMMENTED", bot=True, commit="head-sha")])
+    never = node()
+    res = evaluate([parse_pr(n) for n in (approved_head, approved_old, commented_head, never)], c, ME)
+    assert [p.number for p in res[0].prs] == [approved_old["number"], commented_head["number"], never["number"]]

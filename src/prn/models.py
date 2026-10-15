@@ -13,6 +13,7 @@ class Review:
     state: str           # APPROVED | CHANGES_REQUESTED | COMMENTED | DISMISSED
     submitted_at: Optional[str] = None
     is_bot: bool = False
+    commit: Optional[str] = None   # oid of the commit the review was submitted against
 
 
 @dataclass
@@ -29,6 +30,7 @@ class PR:
     review_decision: str                     # approved | changes_requested | review_required | none
     ci: str                                  # success | failure | pending | none
     mergeable: str = "unknown"               # mergeable | conflicting | unknown (GitHub may still be computing)
+    head_oid: str = ""                       # latest commit on the PR branch
     labels: list[str] = field(default_factory=list)
     comment_count: int = 0
     recent_comment_authors: list[str] = field(default_factory=list)  # last 20, oldest first
@@ -51,6 +53,12 @@ class PR:
 
     def approvals(self, ignored: frozenset[str] = frozenset()) -> int:
         return sum(1 for r in self.latest_reviews if r.state == "APPROVED" and r.author not in ignored)
+
+    def approved_head_by(self, login: str) -> bool:
+        """`login` has an APPROVED review on the PR's latest commit."""
+        login = login.lower().removesuffix("[bot]")
+        return any(r.author == login and r.state == "APPROVED" and r.commit == self.head_oid
+                   for r in self.reviews + self.latest_reviews)
 
     def my_review_state(self, me: str) -> str:
         """Latest opinionated review (approved/changes_requested/dismissed), else commented, else none."""
