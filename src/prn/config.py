@@ -65,6 +65,7 @@ class Filters(_Strict):
     exclude_labels: list[str] = Field(default_factory=list)  # PR has NONE of these
     ci: Optional[CIState] = None
     conflicts: Optional[bool] = None            # GitHub reports merge conflicts with the base branch
+    ready_to_merge: Optional[bool] = None       # GitHub would let you merge now: required checks + all checks pass, no conflicts
     awaiting_approval_from: list[str] = Field(default_factory=list)  # ANY of these hasn't approved the latest commit
     updated_within_days: Optional[int] = Field(default=None, ge=1)
 
