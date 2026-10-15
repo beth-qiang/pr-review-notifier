@@ -104,8 +104,12 @@ def status() -> dict:
         return info
     res = _launchctl("print", f"{_domain()}/{LABEL}")
     if res.returncode == 0:
-        for line in res.stdout.splitlines():
-            line = line.strip()
+        for raw in res.stdout.splitlines():
+            # nested blocks (endpoints, sockets) have their own "state = active" lines;
+            # only the service's top-level fields, indented one tab, describe the process
+            if not raw.startswith("\t") or raw.startswith("\t\t"):
+                continue
+            line = raw.strip()
             if line.startswith("state ="):
                 info["running"] = line.endswith("running")
             elif line.startswith("pid ="):
