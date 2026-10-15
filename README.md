@@ -49,7 +49,7 @@ cd pr-review-notifier
    - **Repos to watch**, as `owner/name` separated by commas. It checks that you can access each one.
    - **Teammates.** It shows the people whose PRs you've reviewed most in those repos over the last 90 days. Pick them by number, type usernames, or both.
    - **Which of the 7 starter sections to keep.** See [The starter sections](#the-starter-sections).
-   - **Poll interval** (default 300 seconds), and which notification types you want.
+   - **Polling strategy** (conservative or aggressive, see [Polling strategies](#polling-strategies)), the **full poll interval** (default 300 seconds), and which notification types you want.
 5. **Fetches your PRs.** The first poll records the current state silently, so you don't get a burst of notifications about PRs that already exist.
 6. **Builds the PR Review Notifier app** with `prn app install`, so notifications say "PR Review Notifier" instead of "Python". See [Why there's an app](#why-theres-a-pr-review-notifierapp).
 7. **Sends a test notification.** macOS may ask you to allow notifications from PR Review Notifier. Click **Allow**.
@@ -135,7 +135,8 @@ Quit PR Review Notifier    ⌘Q
 - **Drafts:** shown dimmed and labelled "(draft)".
 - **Read PRs:** muted until there's new activity. See [Read and unread](#read-and-unread).
 - **Click a PR** to open it on GitHub and mark it read.
-- **Refresh now** polls immediately. **Open inbox (Terminal)** opens the interactive inbox in Terminal. **Edit config…** opens `config.yaml` in your default text editor.
+- **Refresh now** runs a full poll immediately. **Open inbox (Terminal)** opens the interactive inbox in Terminal. **Edit config…** opens `config.yaml` in your default text editor.
+- **The status line** shows when the inbox was last updated and when the next poll is. With `poll_strategy: aggressive` it reads `Updated 10:42 AM · live, checked 6s ago` instead.
 
 Empty sections are hidden (`hide_empty_sections`). Sections with `display: false` are never shown.
 
@@ -224,7 +225,9 @@ Your config is `./config.yaml`; run `prn config path` to check. **When you save 
 
 ```yaml
 settings:
-  poll_interval_seconds: 300       # how often to poll GitHub (minimum 60)
+  poll_strategy: conservative      # conservative | aggressive (see "Polling strategies" below)
+  poll_interval_seconds: 300       # how often to run a full poll (minimum 60)
+  fast_poll_interval_seconds: 15   # aggressive only: how often to check for changes (minimum 10)
   open_with: github                # where PR links open
   notifier: terminal-notifier      # terminal-notifier (branded + clickable) | osascript
   hide_empty_sections: true        # in the menu bar dropdown
@@ -260,6 +263,26 @@ sections:                          # checked top to bottom; first match wins
 `ignored_reviewers` accepts logins with or without the `[bot]` suffix. `coderabbitai` and `coderabbitai[bot]` both work.
 
 A section with `display: false` is useful for removing PRs you don't care about from later sections. For example, a hidden "Has conflicts" section near the top keeps conflicted PRs out of your review sections.
+
+### Polling strategies
+
+`poll_strategy` decides how the menu bar app keeps the inbox current. **Refresh now**, `r` in the terminal inbox, `prn refresh`, and saving `config.yaml` always run a full poll.
+
+| | `conservative` (default) | `aggressive` |
+|---|---|---|
+| What runs | A full poll every `poll_interval_seconds` | A change check every `fast_poll_interval_seconds`, plus a full poll every `poll_interval_seconds` |
+| Typical delay before a change shows up | About half of `poll_interval_seconds` | About 10–20 seconds |
+| GitHub API use at the default intervals | About 110 points an hour | About 400 points an hour |
+
+GitHub allows 5,000 GraphQL points an hour. prn uses your `gh` login, so it shares that budget with the `gh` CLI and anything else using the same login.
+
+How aggressive mode works:
+
+- **Change check.** All of prn's searches go in one request that asks only for each PR's last-updated time, latest commit, and CI status. It costs 1 point and takes about 3 seconds.
+- **Refetch.** When a PR's values differ from the last check, or a PR appears, disappears, or starts or stops requesting your review, prn fetches full details for just those PRs. Then it updates the inbox and sends notifications as usual.
+- **Full poll.** GitHub doesn't update a PR when merge conflicts appear, so conflicts can take up to `poll_interval_seconds` to show up. The full poll catches those.
+- **Fallbacks.** If a search returns more than 100 PRs, or fewer than 500 of your hourly points are left, prn skips change checks until the next full poll.
+- **Brand-new PRs and review requests** reach GitHub's search a few seconds after they happen, so they can take slightly longer to appear than changes to PRs already in your inbox.
 
 ### Filters
 
@@ -346,7 +369,7 @@ macOS labels notifications, Login Items, and Activity Monitor entries with the a
 
 - **Auth:** prn uses `gh auth token`, or `GITHUB_TOKEN` / `GH_TOKEN` if one is set, and talks to GitHub's GraphQL API directly.
 - **Fetching:** each poll runs the smallest set of GitHub searches that covers every section (3 for the default config), keeping each under GitHub's 256-character limit. Filtering then happens locally. That's how prn can tell team requests from direct ones, count approvals, ignore reviewers, and check "reviewed but not approved by me".
-- **Polling and live updates:** the menu bar app polls on a timer and writes the results to `inbox.json`. The terminal inbox and the dropdown redraw whenever that file changes. Saving `config.yaml` triggers a re-poll, and code changes trigger a restart.
+- **Polling and live updates:** the menu bar app polls on a timer and writes the results to `inbox.json`. The terminal inbox and the dropdown redraw whenever that file changes. Saving `config.yaml` triggers a full poll, and code changes trigger a restart. The searches in a poll run in parallel.
 - **Files:**
 
   | Path | What |

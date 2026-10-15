@@ -39,9 +39,13 @@ class PollThread(threading.Thread):
         super().__init__(daemon=True, name="prn-poller")
         self._wake = threading.Event()
         self._stop = threading.Event()
-        self.interval = 300
+        self._force_full = False
+        self.poller = poller.Poller()
+        self.wait = 60.0
 
     def trigger(self) -> None:
+        """Run a full poll now (Refresh now, config saved)."""
+        self._force_full = True
         self._wake.set()
 
     def stop(self) -> None:
@@ -50,10 +54,10 @@ class PollThread(threading.Thread):
 
     def run(self) -> None:
         while not self._stop.is_set():
+            force, self._force_full = self._force_full, False
             try:
                 cfg = config_mod.load()
-                self.interval = cfg.settings.poll_interval_seconds
-                poller.poll_once(cfg=cfg, lock_wait_seconds=30)
+                _, self.wait = self.poller.tick(cfg, force_full=force)
             except store.LockBusy:
                 log.info("poll skipped: another poll in progress")
             except Exception as exc:  # keep the loop alive no matter what
@@ -62,7 +66,7 @@ class PollThread(threading.Thread):
                     store.write_inbox_error(str(exc))
                 except Exception:
                     pass
-            self._wake.wait(timeout=self.interval)
+            self._wake.wait(timeout=self.wait)
             self._wake.clear()
 
 
@@ -212,7 +216,11 @@ if rumps is not None:
                 self._status_item.title = "Not updated yet"
                 return
             updated = datetime.fromtimestamp(inbox.generated_at).strftime("%-I:%M %p")
-            self._status_item.title = f"Last updated {updated} · next in {fmt.until(inbox.next_poll_at)}"
+            checked = self._poller.poller.last_check_at
+            if inbox.strategy == "aggressive" and checked:
+                self._status_item.title = f"Updated {updated} · live, checked {int(time.time() - checked)}s ago"
+            else:
+                self._status_item.title = f"Last updated {updated} · next in {fmt.until(inbox.next_poll_at)}"
 
         # ------------------------------------------------------------ actions
 

@@ -55,7 +55,9 @@ def _summary(cfg: config_mod.Config) -> None:
     t.add_row("Repos", ", ".join(cfg.defaults.repos))
     t.add_row("Teammates", ", ".join(cfg.groups.get("teammates", [])) or "(none)")
     t.add_row("Sections", ", ".join(s.name for s in cfg.sections))
-    t.add_row("Poll", f"every {cfg.settings.poll_interval_seconds}s")
+    s = cfg.settings
+    t.add_row("Poll", f"{s.poll_strategy}: full poll every {s.poll_interval_seconds}s"
+              + (f", change check every {s.fast_poll_interval_seconds}s" if s.poll_strategy == "aggressive" else ""))
     console.print(t)
 
 
@@ -147,8 +149,13 @@ def _ask_sections(ed: ConfigEditor) -> None:
 def _ask_polling_and_notifications(ed: ConfigEditor) -> None:
     console.rule("[bold]4/4  Polling & notifications")
     settings = ed.doc["settings"]
+    fast = int(settings.get("fast_poll_interval_seconds", 15))
+    console.print("[bold]conservative[/bold]: a full poll every N seconds. [bold]aggressive[/bold]: a cheap check for "
+                  f"changes every {fast} seconds so the inbox is near real-time, plus a full poll every N seconds.")
+    settings["poll_strategy"] = Prompt.ask("Polling strategy", choices=["conservative", "aggressive"],
+                                           default=str(settings.get("poll_strategy", "conservative")))
     while True:
-        secs = IntPrompt.ask("Poll GitHub every N seconds (min 60)", default=int(settings.get("poll_interval_seconds", 300)))
+        secs = IntPrompt.ask("Full poll every N seconds (min 60)", default=int(settings.get("poll_interval_seconds", 300)))
         if secs >= 60:
             break
         console.print("[red]Minimum is 60 seconds.[/red]")

@@ -48,6 +48,7 @@ class Inbox:
     next_poll_at: Optional[float] = None
     error: Optional[str] = None
     sections: list[InboxSection] = field(default_factory=list)
+    strategy: str = "conservative"
 
     @property
     def badge_count(self) -> int:
@@ -58,18 +59,21 @@ class Inbox:
         return sum(len(s.prs) for s in self.sections)
 
 
-def write_inbox(results: list[SectionResult], me: str, next_poll_at: Optional[float], error: Optional[str] = None) -> Inbox:
+def write_inbox(results: list[SectionResult], me: str, next_poll_at: Optional[float], error: Optional[str] = None,
+                strategy: str = "conservative") -> Inbox:
     inbox = Inbox(
         me=me,
         generated_at=time.time(),
         next_poll_at=next_poll_at,
         error=error,
         sections=[InboxSection(r.name, r.notify, r.badge, r.prs) for r in results if r.display],
+        strategy=strategy,
     )
     _atomic_write_json(paths.inbox_path(), {
         "me": inbox.me,
         "generated_at": inbox.generated_at,
         "next_poll_at": inbox.next_poll_at,
+        "strategy": inbox.strategy,
         "error": inbox.error,
         "badge_count": inbox.badge_count,
         "sections": [
@@ -88,6 +92,15 @@ def write_inbox_error(error: str) -> None:
     _atomic_write_json(paths.inbox_path(), data)
 
 
+def clear_inbox_error() -> None:
+    """Drop a recorded error once polling works again but nothing changed (so the inbox wasn't rewritten)."""
+    data = _read_json(paths.inbox_path())
+    if data and data.get("error"):
+        data["error"] = None
+        data.pop("error_at", None)
+        _atomic_write_json(paths.inbox_path(), data)
+
+
 def read_inbox() -> Optional[Inbox]:
     data = _read_json(paths.inbox_path())
     if data is None:
@@ -102,6 +115,7 @@ def read_inbox() -> Optional[Inbox]:
                          [PR.from_dict(p) for p in s.get("prs", [])])
             for s in data.get("sections", [])
         ],
+        strategy=data.get("strategy", "conservative"),
     )
 
 
