@@ -29,6 +29,7 @@ class PR:
     updated_at: str
     review_decision: str                     # approved | changes_requested | review_required | none
     ci: str                                  # success | failure | pending | none
+    mergeable: str = "unknown"               # mergeable | conflicting | unknown (GitHub may still be computing)
     head_oid: str = ""                       # latest commit on the PR branch
     labels: list[str] = field(default_factory=list)
     comment_count: int = 0

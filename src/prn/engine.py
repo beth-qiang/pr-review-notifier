@@ -93,6 +93,9 @@ def matches(pr: PR, section: Section, cfg: Config, me: str, now: Optional[dateti
     if f.ci is not None and pr.ci != f.ci:
         return False
 
+    if f.conflicts is not None and (pr.mergeable == "conflicting") != f.conflicts:
+        return False
+
     if f.awaiting_approval_from and all(pr.approved_head_by(u) for u in f.awaiting_approval_from):
         return False
 

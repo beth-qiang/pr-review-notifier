@@ -103,6 +103,7 @@ All filters in a section must match (AND). List values match if any item matches
 | `draft` | `true` / `false` | |
 | `labels` / `exclude_labels` | names | Has any / has none (case-insensitive) |
 | `ci` | `success` · `failure` · `pending` · `none` | Rollup status of the latest commit |
+| `conflicts` | `true` / `false` | GitHub reports merge conflicts with the base branch. While GitHub is still computing, it counts as no conflicts |
 | `awaiting_approval_from` | usernames | Any of these reviewers hasn't approved the PR's latest commit (e.g. `[coderabbitai]` while it re-reviews a new push). Not affected by `ignored_reviewers` |
 | `updated_within_days` | int | |
 
