@@ -14,6 +14,7 @@ from textual.containers import Horizontal
 from textual.widgets import Footer, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
+from . import config as config_mod
 from . import fmt, poller, store
 from .models import PR
 
@@ -52,6 +53,7 @@ class PRNTui(App):
         self._section_of: dict[str, str] = {}
         self._unread: set[str] = set()
         self._seen_mtime = -1.0
+        self._read_tracking = True
         self._filter = ""
         self._refreshing = False
 
@@ -78,6 +80,13 @@ class PRNTui(App):
         if not force and mtime == self._mtime and seen_mtime == self._seen_mtime:
             return
         self._mtime, self._seen_mtime = mtime, seen_mtime
+        try:
+            tracking = config_mod.load().settings.read_tracking
+        except config_mod.ConfigError:
+            tracking = True
+        if tracking != self._read_tracking:
+            self._read_tracking = tracking
+            self.refresh_bindings()
         self._inbox = store.read_inbox()
         self._render_list()
         self._update_status()
@@ -115,8 +124,8 @@ class PRNTui(App):
             for pr in visible:
                 self._prs[pr.key] = pr
                 self._section_of[pr.key] = sec.name
-                unread = store.is_unread(seen, pr, sec.name, me)
-                if unread:
+                unread = not self._read_tracking or store.is_unread(seen, pr, sec.name, me)
+                if unread and self._read_tracking:
                     self._unread.add(pr.key)
                 title = fmt.truncate(pr.title, 70) + ("  (draft)" if pr.is_draft else "")
                 mark, mark_style = REVIEW_MARK.get(pr.review_decision, (" ", ""))
@@ -166,8 +175,9 @@ class PRNTui(App):
             ("PR Review Notifier", "bold magenta"),
             "  ·  ",
             (f"@{inbox.me}", "bold"),
-            f"  ·  {inbox.badge_count} need attention  ·  ",
-            (f"{len(self._unread)} new", "bold" if self._unread else ""),
+            f"  ·  {inbox.badge_count} need attention",
+            *([("  ·  ", ""), (f"{len(self._unread)} new", "bold" if self._unread else "")]
+              if self._read_tracking else []),
             f"  ·  {inbox.total} total",
             f"  ·  updated {fmt.ago(inbox.generated_at) if inbox.generated_at else '?'}",
             f"  ·  next poll in {fmt.until(inbox.next_poll_at)}",
@@ -241,8 +251,13 @@ class PRNTui(App):
         webbrowser.open(pr.url)
         self._mark_read([pr])
 
+    def check_action(self, action: str, parameters: tuple) -> Optional[bool]:
+        if action in ("toggle_read", "mark_all_read"):
+            return self._read_tracking
+        return True
+
     def _mark_read(self, prs: list[PR]) -> None:
-        if not self._inbox:
+        if not self._inbox or not self._read_tracking:
             return
         store.mark_read([(p, self._section_of[p.key]) for p in prs], self._inbox.me,
                         live_keys={p.key for s in self._inbox.sections for p in s.prs})

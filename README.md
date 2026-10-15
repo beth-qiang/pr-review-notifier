@@ -86,6 +86,8 @@ Once you've looked at a PR, it fades so new activity stands out. This works in b
 - **Every PR starts unread.** Press `M` once to start from a clean slate.
 - **Clicking a desktop notification doesn't mark the PR read**, because macOS doesn't report the click to prn. Use `m` instead.
 
+**Don't want it?** Set `read_tracking: false` under `settings`. Every row then stays at full brightness, opening a PR doesn't mark it read, and `m`/`M` and the "new" count go away. Both views pick up the change within a few seconds. Turning it back on keeps your earlier read state.
+
 Read state lives in `~/.local/state/prn/seen.json`. An entry is removed once its PR has left the inbox for 30 days. If the PR comes back after that, it shows as unread.
 
 ## Config reference
@@ -98,6 +100,7 @@ settings:
   notifier: terminal-notifier  # or osascript (notifications won't be clickable)
   hide_empty_sections: true    # menu bar only
   max_title_length: 50
+  read_tracking: true          # fade PRs you've opened; false turns it off everywhere
   ignore_bot_reviews: false
   ignored_reviewers: [coderabbitai]   # never count toward approvals / has_reviews_from_others
   notifications: { new_in_section: true, re_review_requested: true, my_pr_status: true, ci_status: true }

@@ -96,3 +96,26 @@ def test_tui_fades_opened_rows_and_toggles(cfg, monkeypatch):
             await pilot.pause()
             assert not tui._unread
     asyncio.run(go())
+
+
+def test_read_tracking_off_keeps_everything_bright(cfg, monkeypatch):
+    from prn import paths
+    from prn.tui import PRNTui
+
+    runner.invoke(app, ["config", "init"])
+    p = paths.config_path()
+    p.write_text(p.read_text().replace("read_tracking: true", "read_tracking: false"))
+    pr = parse_pr(node(author="alice", number=301, title="Teammate thing"))
+    store.write_inbox(evaluate([pr], cfg, ME), ME, next_poll_at=None)
+    monkeypatch.setattr("prn.tui.webbrowser.open", lambda url: None)
+
+    async def go():
+        tui = PRNTui()
+        async with tui.run_test(size=(140, 40)) as pilot:
+            await pilot.pause()
+            assert not tui._read_tracking and not tui._unread
+            assert tui.check_action("toggle_read", ()) is False
+            await pilot.press("o")
+            await pilot.pause()
+    asyncio.run(go())
+    assert store.read_seen() == {}

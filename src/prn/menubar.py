@@ -173,7 +173,7 @@ if rumps is not None:
                     self.menu.add(rumps.MenuItem(f"⚠ {fmt.truncate(inbox.error, 70)}"))
                     self.menu.add(rumps.separator)
                 shown = 0
-                seen = store.read_seen()
+                seen = store.read_seen() if settings.read_tracking else None
                 for sec in inbox.sections:
                     if not sec.prs and settings.hide_empty_sections:
                         continue
@@ -182,7 +182,7 @@ if rumps is not None:
                     shown += 1
                     self.menu.add(rumps.MenuItem(f"{sec.name} ({len(sec.prs)})"))
                     for pr in sec.prs:
-                        read = not store.is_unread(seen, pr, sec.name, inbox.me)
+                        read = seen is not None and not store.is_unread(seen, pr, sec.name, inbox.me)
                         segments = menu_style.pr_segments(pr, settings.max_title_length, read=read)
                         item = rumps.MenuItem(menu_style.plain(segments), callback=self._open_pr)
                         item._prn_url = pr.url  # type: ignore[attr-defined]
@@ -222,7 +222,7 @@ if rumps is not None:
                 webbrowser.open(url)
             inbox = getattr(self, "_inbox", None)
             seen = getattr(sender, "_prn_seen", None)
-            if inbox and seen:
+            if inbox and seen and self._settings().read_tracking:
                 try:
                     store.mark_read([seen], inbox.me, live_keys={p.key for s in inbox.sections for p in s.prs})
                 except Exception:
