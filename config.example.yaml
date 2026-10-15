@@ -2,7 +2,7 @@
 #
 # Don't edit this file for your own use. Run ./setup.sh, which copies it to ./config.yaml
 # (gitignored) and walks you through repos, teammates, sections, and notifications.
-# After editing config.yaml by hand, run `prn config validate`. The daemon picks up changes on its next poll.
+# After editing config.yaml by hand, just save: the menu bar app validates it and re-polls within ~3s.
 
 settings:
   poll_interval_seconds: 300      # minimum 60

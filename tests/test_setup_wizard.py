@@ -82,8 +82,11 @@ def test_rerun_keep_and_reconfigure_with_backup(tmp_path):
 
 
 def test_wizard_without_github(tmp_path, monkeypatch):
+    # Simulate a machine with no gh / terminal-notifier, even when run on a Mac that has them.
     monkeypatch.delenv("GITHUB_TOKEN")
+    monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.setattr("prn.github.find_binary", lambda name: None)
+    monkeypatch.setattr("prn.setup_wizard.find_binary", lambda name: None)
     target = tmp_path / "config.yaml"
     answers = "acme/web\nalice\n" + "y\n" * 7 + "300\n" + "y\n" * 4
     r = runner.invoke(app, ["setup", "--config", str(target)], input=answers)

@@ -122,3 +122,18 @@ def test_toggles_disable_events(cfg):
     cfg.settings.notifications.ci_status = False
     assert run(cfg, [], [node(author="alice", number=111)]) == []
     assert run(cfg, [node(author=ME, number=112, ci="PENDING")], [node(author=ME, number=112, ci="FAILURE")]) == []
+
+
+def test_hidden_sections_never_notify():
+    from prn.config import parse
+    c = parse("""
+defaults: {repos: [acme/web]}
+sections:
+  - name: Parked
+    display: false          # notify defaults to true, but hidden sections stay silent
+    filters: {labels: [blocked]}
+  - name: Everything
+    filters: {}
+""")
+    events = run(c, [], [node(number=130, labels=["blocked"]), node(number=131)])
+    assert [(e.kind, e.pr.number) for e in events] == [(ev.NEW_IN_SECTION, 131)]

@@ -21,7 +21,8 @@ CI_STYLE = {"success": "green", "failure": "red", "pending": "yellow", "none": "
 
 
 class PRNTui(App):
-    TITLE = "prn"
+    TITLE = "PR Review Notifier"
+    SUB_TITLE = "prn"
     CSS = """
     #status { height: 1; padding: 0 1; background: $boost; }
     #main { height: 1fr; }
@@ -106,6 +107,8 @@ class PRNTui(App):
                     "   ",
                     (fmt.CI_GLYPH.get(pr.ci, " "), CI_STYLE.get(pr.ci, "")),
                     " ",
+                    {"approved": ("◆", "green"), "changes_requested": ("◆", "red")}.get(pr.review_decision, " "),
+                    " ",
                     (f"{fmt.pr_label(pr):<28}", "cyan"),
                     (fmt.truncate(pr.title, 70), "bold" if not pr.is_draft else "dim"),
                     (f"  @{pr.author}", "dim"),
@@ -139,6 +142,8 @@ class PRNTui(App):
             status.update(Text("No inbox yet. Press r to fetch from GitHub.", style="yellow"))
             return
         parts = [
+            ("PR Review Notifier", "bold magenta"),
+            "  ·  ",
             (f"@{inbox.me}", "bold"),
             f"  ·  {inbox.badge_count} need attention  ·  {inbox.total} total",
             f"  ·  updated {fmt.ago(inbox.generated_at) if inbox.generated_at else '?'}",

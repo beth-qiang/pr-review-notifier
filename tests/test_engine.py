@@ -219,6 +219,28 @@ sections:
     assert [p.number for p in res[0].prs] == [approved_old["number"], commented_head["number"], never["number"]]
 
 
+def test_ready_to_merge_filter():
+    from prn.config import parse
+    c = parse("""
+defaults: {repos: [acme/web]}
+sections:
+  - name: Not Ready
+    filters: {ready_to_merge: false}
+  - name: Ready
+    filters: {ready_to_merge: true}
+""")
+    clean = node(merge_state="CLEAN")
+    hooks = node(merge_state="HAS_HOOKS")
+    blocked = node(merge_state="BLOCKED", ci="PENDING")   # e.g. policy-bot still waiting on a human
+    unstable = node(merge_state="UNSTABLE", ci="FAILURE")  # a non-required check failed
+    dirty = node(merge_state="DIRTY", mergeable="CONFLICTING")
+    unknown = node(merge_state="UNKNOWN")
+    prs = [parse_pr(n) for n in (clean, hooks, blocked, unstable, dirty, unknown)]
+    res = evaluate(prs, c, ME)
+    assert [p.number for p in res[1].prs] == [clean["number"], hooks["number"]]
+    assert [p.number for p in res[0].prs] == [blocked["number"], unstable["number"], dirty["number"], unknown["number"]]
+
+
 def test_approved_by_requires_any_listed_approval_on_latest_commit():
     from prn.config import parse
     c = parse("""

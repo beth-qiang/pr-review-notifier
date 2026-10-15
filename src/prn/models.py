@@ -30,6 +30,7 @@ class PR:
     review_decision: str                     # approved | changes_requested | review_required | none
     ci: str                                  # success | failure | pending | none
     mergeable: str = "unknown"               # mergeable | conflicting | unknown (GitHub may still be computing)
+    merge_state: str = "unknown"             # GitHub mergeStateStatus: clean | has_hooks | unstable | blocked | behind | dirty | draft | unknown
     head_oid: str = ""                       # latest commit on the PR branch
     labels: list[str] = field(default_factory=list)
     comment_count: int = 0
@@ -50,6 +51,11 @@ class PR:
     @property
     def short_repo(self) -> str:
         return self.repo.split("/", 1)[-1]
+
+    @property
+    def ready_to_merge(self) -> bool:
+        """Branch protection is satisfied (required checks such as policy-bot passed), every check passed, no conflicts."""
+        return self.merge_state in ("clean", "has_hooks")
 
     def approvals(self, ignored: frozenset[str] = frozenset()) -> int:
         return sum(1 for r in self.latest_reviews if r.state == "APPROVED" and r.author not in ignored)

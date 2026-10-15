@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# prn setup: installs dependencies, configures prn, and starts the menu bar app.
+# PR Review Notifier (prn) setup: installs dependencies, configures prn, builds the
+# "PR Review Notifier" macOS app, and starts the menu bar app.
 # Safe to re-run: it reinstalls the latest code and lets you keep or reconfigure your config.
 set -euo pipefail
 
@@ -47,7 +48,7 @@ brew_install() {  # brew_install <formula> <why> <required:yes|no>
 [[ "$(uname -s)" == "Darwin" ]] || die "prn's menu bar app and notifications need macOS."
 [[ -t 0 || -e /dev/tty ]] || die "setup.sh is interactive; run it from a terminal."
 
-printf '%sprn setup%s  %s(%s)%s\n' "$bold" "$reset" "$dim" "$REPO_DIR" "$reset"
+printf '%sPR Review Notifier (prn) setup%s  %s(%s)%s\n' "$bold" "$reset" "$dim" "$REPO_DIR" "$reset"
 
 # ------------------------------------------------------------------ 1. dependencies
 step "Checking dependencies"
@@ -73,10 +74,8 @@ if ! have uv; then
   else die "uv is required. See https://docs.astral.sh/uv/"; fi
 fi
 have gh || { have brew && brew_install gh "used for GitHub auth" yes; } || die "GitHub CLI (gh) is required."
-if ! have terminal-notifier; then
-  { have brew && brew_install terminal-notifier "makes notifications clickable" no; } \
-    || warn "Without terminal-notifier, notifications fall back to osascript and aren't clickable."
-fi
+have terminal-notifier || { have brew && brew_install terminal-notifier "sends PR Review Notifier's notifications" yes; } \
+  || die "terminal-notifier is required (brew install terminal-notifier)."
 info "uv $(uv --version | awk '{print $2}') · gh $(gh --version | head -1 | awk '{print $3}')$(have terminal-notifier && echo ' · terminal-notifier ✓')"
 
 # ------------------------------------------------------------------ 2. GitHub auth
@@ -95,8 +94,10 @@ fi
 info "Logged in as $(gh api user --jq .login 2>/dev/null || echo '?')"
 
 # ------------------------------------------------------------------ 3. install prn
-step "Installing prn"
-uv tool install --force --reinstall --quiet "$REPO_DIR"
+step "Installing the prn command (also available as pr-review-notifier)"
+# Editable install: prn runs straight from ./src, so `git pull` or local edits take effect
+# without reinstalling, and the menu bar app restarts itself when the code changes.
+uv tool install --force --reinstall --quiet --editable "$REPO_DIR"
 BIN_DIR="$(uv tool dir --bin)"
 PRN="$BIN_DIR/prn"
 [[ -x "$PRN" ]] || die "prn was not installed to $BIN_DIR"
@@ -120,10 +121,14 @@ if ! "$PRN" refresh; then
   die "First poll failed. Fix the error above, then re-run ./setup.sh (or run \`prn refresh\`)."
 fi
 
-# ------------------------------------------------------------------ 6. notifications
-if have terminal-notifier && confirm "Send a test notification? (macOS may ask you to allow notifications)"; then
-  terminal-notifier -title "prn" -message "Notifications are working 🎉" -group prn-setup -sound default || true
-  info "If nothing appeared: System Settings → Notifications → terminal-notifier → Allow."
+# ------------------------------------------------------------------ 6. macOS app + notifications
+step "Building the PR Review Notifier app (so macOS shows our name instead of \"Python\")"
+if ! "$PRN" app install; then
+  warn "Couldn't build the app; notifications will come from terminal-notifier instead. Details above."
+fi
+if confirm "Send a test notification? (macOS may ask you to allow notifications from PR Review Notifier)"; then
+  "$PRN" test-notification || true
+  info "If nothing appeared: System Settings → Notifications → PR Review Notifier → Allow."
 fi
 
 # ------------------------------------------------------------------ 7. menu bar daemon
@@ -134,8 +139,8 @@ step "Starting the menu bar app (and enabling it at login)"
 step "Health check"
 "$PRN" doctor || warn "Some checks failed. See above."
 
-printf '\n%s✓ prn is ready.%s\n' "$green" "$reset"
+printf '\n%s✓ PR Review Notifier is ready.%s\n' "$green" "$reset"
 info "• Look for the inbox icon in your menu bar."
-info "• Run ${bold}prn${reset} for the interactive inbox, ${bold}prn list${reset} for a quick view."
+info "• Run ${bold}prn${reset} (or ${bold}pr-review-notifier${reset}) for the interactive inbox, ${bold}prn list${reset} for a quick view."
 info "• Edit ${bold}$CONFIG${reset} (or run ${bold}prn config edit${reset}); re-run ./setup.sh anytime."
 info "• Remove everything with ./uninstall.sh"

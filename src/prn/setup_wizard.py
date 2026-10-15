@@ -168,7 +168,7 @@ def _ask_polling_and_notifications(ed: ConfigEditor) -> None:
 
 
 def run(target: Path) -> Path:
-    console.print(f"[bold]prn setup[/bold]: config file [cyan]{target}[/cyan]\n")
+    console.print(f"[bold]PR Review Notifier setup[/bold]: config file [cyan]{target}[/cyan]\n")
     base_text = config_mod.example_config_text()
 
     if target.exists():
