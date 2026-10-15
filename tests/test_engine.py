@@ -239,3 +239,22 @@ sections:
     res = evaluate(prs, c, ME)
     assert [p.number for p in res[1].prs] == [clean["number"], hooks["number"]]
     assert [p.number for p in res[0].prs] == [blocked["number"], unstable["number"], dirty["number"], unknown["number"]]
+
+
+def test_approved_by_requires_any_listed_approval_on_latest_commit():
+    from prn.config import parse
+    c = parse("""
+defaults: {repos: [acme/web]}
+sections:
+  - name: Approved by Claire or CodeRabbit
+    filters: {approved_by: [claire, "coderabbitai[bot]"]}
+""")
+    bot_head = node(reviews=[review("coderabbitai", "APPROVED", bot=True, commit="head-sha")])
+    claire_head = node(reviews=[review("claire", "APPROVED", commit="head-sha")])
+    claire_old = node(reviews=[review("claire", "APPROVED", commit="old-sha")])
+    claire_changes = node(reviews=[review("claire", "CHANGES_REQUESTED", commit="head-sha")])
+    other_head = node(reviews=[review("bob", "APPROVED", commit="head-sha")])
+    never = node()
+    prs = [bot_head, claire_head, claire_old, claire_changes, other_head, never]
+    res = evaluate([parse_pr(n) for n in prs], c, ME)
+    assert [p.number for p in res[0].prs] == [bot_head["number"], claire_head["number"]]
