@@ -13,7 +13,7 @@ from importlib import resources
 from typing import Optional
 
 from . import config as config_mod
-from . import fmt, notify, paths, poller, store, watch
+from . import fmt, menu_style, notify, paths, poller, store, watch
 from .launchd import prn_executable
 
 log = logging.getLogger(__name__)
@@ -170,13 +170,16 @@ if rumps is not None:
                     shown += 1
                     self.menu.add(rumps.MenuItem(f"{sec.name} ({len(sec.prs)})"))
                     for pr in sec.prs:
-                        label = (f"   {fmt.CI_GLYPH.get(pr.ci, ' ')} {fmt.pr_label(pr)}  "
-                                 f"{fmt.truncate(pr.title, settings.max_title_length)}  · {pr.author}")
-                        item = rumps.MenuItem(label, callback=self._open_pr)
+                        segments = menu_style.pr_segments(pr, settings.max_title_length)
+                        item = rumps.MenuItem(menu_style.plain(segments), callback=self._open_pr)
                         item._prn_url = pr.url  # type: ignore[attr-defined]
                         self.menu.add(item)
+                        menu_style.apply(item, segments)  # native colors; plain text if unavailable
                 if not shown:
                     self.menu.add(rumps.MenuItem("Inbox zero 🎉"))
+                else:
+                    self.menu.add(rumps.separator)
+                    self.menu.add(rumps.MenuItem(menu_style.LEGEND))
 
             self.menu.add(rumps.separator)
             self.menu.add(rumps.MenuItem("Refresh now", callback=self._refresh, key="r"))
