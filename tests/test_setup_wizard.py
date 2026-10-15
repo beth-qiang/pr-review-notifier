@@ -42,6 +42,7 @@ def test_first_run_wizard(tmp_path, monkeypatch):
         "1, carol",                 # teammates: suggestion #1 (alice) + carol
         "y", "y", "y", "y", "y",    # keep first 5 sections
         "n", "n",                   # drop My Open PRs, My Draft PRs
+        "aggressive",               # poll strategy
         "120",                      # poll interval
         "y", "n", "y", "y",         # notifications (re_review off)
     ]) + "\n"
@@ -54,6 +55,7 @@ def test_first_run_wizard(tmp_path, monkeypatch):
     assert cfg.groups["teammates"] == ["alice", "carol"]
     assert [s.name for s in cfg.sections][-1] == "My Approved PRs"
     assert cfg.settings.poll_interval_seconds == 120
+    assert cfg.settings.poll_strategy == "aggressive"
     assert cfg.settings.notifications.re_review_requested is False
     text = target.read_text()
     assert "# Sections are evaluated top to bottom" in text   # comments preserved
@@ -72,7 +74,7 @@ def test_rerun_keep_and_reconfigure_with_backup(tmp_path):
     assert not list(tmp_path.glob("config.yaml.bak-*"))
 
     # Reconfigure: Enter keeps current repos and teammates as defaults
-    answers = "r\n\n\n" + "y\n" * 7 + "\n" + "y\n" * 4
+    answers = "r\n\n\n" + "y\n" * 7 + "\n\n" + "y\n" * 4
     r = runner.invoke(app, ["setup", "--config", str(target)], input=answers)
     assert r.exit_code == 0, r.output
     assert len(list(tmp_path.glob("config.yaml.bak-*"))) == 1
@@ -88,7 +90,7 @@ def test_wizard_without_github(tmp_path, monkeypatch):
     monkeypatch.setattr("prn.github.find_binary", lambda name: None)
     monkeypatch.setattr("prn.setup_wizard.find_binary", lambda name: None)
     target = tmp_path / "config.yaml"
-    answers = "acme/web\nalice\n" + "y\n" * 7 + "300\n" + "y\n" * 4
+    answers = "acme/web\nalice\n" + "y\n" * 7 + "\n300\n" + "y\n" * 4
     r = runner.invoke(app, ["setup", "--config", str(target)], input=answers)
     assert r.exit_code == 0, r.output
     assert "Can't reach GitHub" in r.output

@@ -95,7 +95,12 @@ class NotificationToggles(_Strict):
 
 
 class Settings(_Strict):
+    # conservative: a full poll every poll_interval_seconds.
+    # aggressive: a cheap change check every fast_poll_interval_seconds, refetching only PRs that changed,
+    #             plus a full poll every poll_interval_seconds to catch what the check can't see (merge conflicts).
+    poll_strategy: Literal["conservative", "aggressive"] = "conservative"
     poll_interval_seconds: int = Field(default=300, ge=60)
+    fast_poll_interval_seconds: int = Field(default=15, ge=10)
     open_with: Literal["github"] = "github"
     notifier: Literal["terminal-notifier", "osascript"] = "terminal-notifier"
     hide_empty_sections: bool = True

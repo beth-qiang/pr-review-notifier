@@ -5,7 +5,11 @@
 # After editing config.yaml by hand, just save: the menu bar app validates it and re-polls within ~3s.
 
 settings:
+  poll_strategy: conservative     # conservative: full poll every poll_interval_seconds
+                                  # aggressive: cheap change check every fast_poll_interval_seconds (near real-time),
+                                  #             plus a full poll every poll_interval_seconds
   poll_interval_seconds: 300      # minimum 60
+  fast_poll_interval_seconds: 15  # aggressive only; minimum 10
   open_with: github               # where PR links open
   notifier: terminal-notifier     # terminal-notifier (click opens PR) | osascript
   hide_empty_sections: true       # in the menu bar dropdown

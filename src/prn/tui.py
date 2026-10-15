@@ -179,7 +179,7 @@ class PRNTui(App):
               if self._read_tracking else []),
             f"  ·  {inbox.total} total",
             f"  ·  updated {fmt.ago(inbox.generated_at) if inbox.generated_at else '?'}",
-            f"  ·  next poll in {fmt.until(inbox.next_poll_at)}",
+            "  ·  live updates" if inbox.strategy == "aggressive" else f"  ·  next poll in {fmt.until(inbox.next_poll_at)}",
         ]
         t = Text.assemble(*parts)
         if inbox.error:

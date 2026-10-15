@@ -6,8 +6,11 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
 import time
-from typing import Iterable, Optional
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from typing import Callable, Iterable, Optional, TypeVar
 
 import httpx
 
@@ -21,6 +24,9 @@ SEARCH_BASE = "is:pr is:open archived:false"
 MAX_QUERY_LEN = 256          # GitHub search query length limit
 PAGE_SIZE = 50
 MAX_PAGES = 20               # 1000 results: GitHub's search ceiling
+CHECK_PAGE_SIZE = 100        # change checks fetch one page per search; more than this falls back to a full poll
+NODES_BATCH = 25             # PRs per refetch request
+MAX_PARALLEL = 6             # concurrent GraphQL requests
 
 # launchd starts with a minimal PATH, so check Homebrew locations explicitly.
 EXTRA_BIN_DIRS = ["/opt/homebrew/bin", "/usr/local/bin"]
@@ -107,7 +113,43 @@ query($q: String!, $first: Int!, $after: String) {
 """
 )
 
+NODES_QUERY = (
+    PR_FIELDS
+    + """
+query($ids: [ID!]!) {
+  rateLimit { remaining resetAt cost }
+  nodes(ids: $ids) { ...PRFields }
+}
+"""
+)
+
+# Only fields GitHub can answer quickly. reviewDecision and mergeable are computed on demand and
+# make the check several times slower; reading CI through headRef avoids a connection, so it stays at 1 point.
+CHECK_FIELDS = ("id updatedAt headRefOid repository { nameWithOwner } "
+                "headRef { target { ... on Commit { statusCheckRollup { state } } } }")
+
+
+def _check_query(n: int) -> str:
+    decl = ", ".join(f"$q{i}: String!" for i in range(n))
+    searches = " ".join(
+        f"s{i}: search(query: $q{i}, type: ISSUE, first: {CHECK_PAGE_SIZE}) "
+        f"{{ pageInfo {{ hasNextPage }} nodes {{ ... on PullRequest {{ {CHECK_FIELDS} }} }} }}"
+        for i in range(n)
+    )
+    return f"query({decl}) {{ rateLimit {{ remaining resetAt cost }} {searches} }}"
+
+
 VIEWER_QUERY = "query { viewer { login } }"
+
+T = TypeVar("T")
+R = TypeVar("R")
+
+
+def _parallel(fn: Callable[[T], R], items: list[T]) -> list[R]:
+    if len(items) <= 1:
+        return [fn(i) for i in items]
+    with ThreadPoolExecutor(max_workers=min(len(items), MAX_PARALLEL), thread_name_prefix="prn-gh") as ex:
+        return list(ex.map(fn, items))
 
 
 class GitHubClient:
@@ -123,6 +165,8 @@ class GitHubClient:
             },
         )
         self.rate_remaining: Optional[int] = None
+        self.points_used = 0     # sum of GraphQL rateLimit.cost across this client's requests
+        self._lock = threading.Lock()
 
     def close(self) -> None:
         self._http.close()
@@ -151,7 +195,9 @@ class GitHubClient:
             data = body.get("data") or {}
             rl = data.get("rateLimit")
             if rl:
-                self.rate_remaining = rl.get("remaining")
+                with self._lock:
+                    self.rate_remaining = rl.get("remaining")
+                    self.points_used += rl.get("cost") or 0
             return data
         raise GitHubError("GitHub request failed after retries")
 
@@ -201,6 +247,26 @@ class GitHubClient:
                 break
             after = search["pageInfo"]["endCursor"]
         return nodes
+
+    def check_searches(self, queries: list[str]) -> Optional[list[list[dict]]]:
+        """Run every search in one request with only change-detection fields.
+
+        Returns one node list per query, or None if any search has more results than one page holds.
+        """
+        data = self.graphql(_check_query(len(queries)), {f"q{i}": q for i, q in enumerate(queries)})
+        out = []
+        for i in range(len(queries)):
+            search = data[f"s{i}"]
+            if search["pageInfo"]["hasNextPage"]:
+                return None
+            out.append([n for n in search["nodes"] if n])
+        return out
+
+    def nodes_by_id(self, ids: list[str]) -> list[dict]:
+        """Full PR nodes for `ids`, fetched in parallel batches. PRs that no longer exist are dropped."""
+        batches = [ids[i:i + NODES_BATCH] for i in range(0, len(ids), NODES_BATCH)]
+        results = _parallel(lambda b: self.graphql(NODES_QUERY, {"ids": b})["nodes"], batches)
+        return [n for batch in results for n in batch if n]
 
 
 # ---------------------------------------------------------------- parsing
@@ -355,22 +421,68 @@ def _subsumes(broad: str, narrow: str) -> bool:
     return b_or == n_or and b_and < n_and
 
 
-def fetch_prs(client: GitHubClient, cfg: Config, me: str) -> list[PR]:
-    """Run planned queries, union by PR id, and mark which PRs request a review from me."""
-    nodes_by_id: dict[str, dict] = {}
-    requested_ids: set[str] = set()
-    for q in plan_queries(cfg, me):
-        log.debug("search: %s", q)
-        for n in client.search_prs(q):
-            nodes_by_id[n["id"]] = n
-            if REVIEW_REQUESTED_ME in q:
-                requested_ids.add(n["id"])
+@dataclass
+class Fetched:
+    """Raw PR nodes from a set of searches, keyed by node id."""
+    nodes: dict[str, dict] = field(default_factory=dict)
+    requested_ids: set[str] = field(default_factory=set)   # PRs returned by a `review-requested:@me` search
 
-    allowed = {r.lower() for s in cfg.sections for r in cfg.section_repos(s)}
-    prs = []
-    for pid, node in nodes_by_id.items():
-        if node["repository"]["nameWithOwner"].lower() not in allowed:
-            continue
-        prs.append(parse_pr(node, requested_from_me=pid in requested_ids))
+
+def fetch_all(client: GitHubClient, queries: list[str]) -> Fetched:
+    """Run every search in parallel and union the results by PR id."""
+    for q in queries:
+        log.debug("search: %s", q)
+    out = Fetched()
+    for q, nodes in zip(queries, _parallel(client.search_prs, queries)):
+        for n in nodes:
+            out.nodes[n["id"]] = n
+            if REVIEW_REQUESTED_ME in q:
+                out.requested_ids.add(n["id"])
+    return out
+
+
+Fingerprint = tuple[str, str, Optional[str]]
+
+
+def allowed_repos(cfg: Config) -> set[str]:
+    return {r.lower() for s in cfg.sections for r in cfg.section_repos(s)}
+
+
+def check_all(client: GitHubClient, queries: list[str],
+              allowed: set[str]) -> Optional[tuple[dict[str, Fingerprint], set[str]]]:
+    """Cheap change check: (fingerprint per PR id, ids returned by `review-requested:@me`), or None if a
+    search overflowed one page. PRs outside `allowed` repos are skipped.
+
+    A fingerprint changes on reviews, comments, pushes, edits and CI results. It doesn't change when
+    GitHub recomputes merge conflicts, so callers still need an occasional full poll.
+    """
+    results = client.check_searches(queries)
+    if results is None:
+        return None
+    fingerprints: dict[str, Fingerprint] = {}
+    requested: set[str] = set()
+    for q, nodes in zip(queries, results):
+        for n in nodes:
+            if n["repository"]["nameWithOwner"].lower() not in allowed:
+                continue
+            target = (n.get("headRef") or {}).get("target") or {}
+            fingerprints[n["id"]] = (n["updatedAt"], n.get("headRefOid") or "",
+                                     (target.get("statusCheckRollup") or {}).get("state"))
+            if REVIEW_REQUESTED_ME in q:
+                requested.add(n["id"])
+    return fingerprints, requested
+
+
+def build_prs(fetched: Fetched, cfg: Config) -> list[PR]:
+    """Parse nodes into PRs, keeping only repos some section watches. Newest activity first."""
+    allowed = allowed_repos(cfg)
+    prs = [parse_pr(node, requested_from_me=pid in fetched.requested_ids)
+           for pid, node in fetched.nodes.items()
+           if node["repository"]["nameWithOwner"].lower() in allowed]
     prs.sort(key=lambda p: p.updated_at, reverse=True)
     return prs
+
+
+def fetch_prs(client: GitHubClient, cfg: Config, me: str) -> list[PR]:
+    """Run planned queries, union by PR id, and mark which PRs request a review from me."""
+    return build_prs(fetch_all(client, plan_queries(cfg, me)), cfg)
