@@ -99,6 +99,9 @@ def matches(pr: PR, section: Section, cfg: Config, me: str, now: Optional[dateti
     if f.awaiting_approval_from and all(pr.approved_head_by(u) for u in f.awaiting_approval_from):
         return False
 
+    if f.approved_by and not any(pr.approved_head_by(u) for u in f.approved_by):
+        return False
+
     if f.updated_within_days is not None:
         now = now or datetime.now(timezone.utc)
         if pr.updated_dt() < now - timedelta(days=f.updated_within_days):

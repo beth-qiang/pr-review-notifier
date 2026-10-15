@@ -105,6 +105,7 @@ All filters in a section must match (AND). List values match if any item matches
 | `ci` | `success` · `failure` · `pending` · `none` | Rollup status of the latest commit |
 | `conflicts` | `true` / `false` | GitHub reports merge conflicts with the base branch. While GitHub is still computing, it counts as no conflicts |
 | `awaiting_approval_from` | usernames | Any of these reviewers hasn't approved the PR's latest commit (e.g. `[coderabbitai]` while it re-reviews a new push). Not affected by `ignored_reviewers` |
+| `approved_by` | usernames | Any of these reviewers has approved the PR's latest commit. An approval on an older commit doesn't count. Not affected by `ignored_reviewers` |
 | `updated_within_days` | int | |
 
 Unknown keys or bad values are rejected. `prn config validate` tells you exactly where.

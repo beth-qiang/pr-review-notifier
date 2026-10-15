@@ -66,6 +66,7 @@ class Filters(_Strict):
     ci: Optional[CIState] = None
     conflicts: Optional[bool] = None            # GitHub reports merge conflicts with the base branch
     awaiting_approval_from: list[str] = Field(default_factory=list)  # ANY of these hasn't approved the latest commit
+    approved_by: list[str] = Field(default_factory=list)  # ANY of these has approved the latest commit
     updated_within_days: Optional[int] = Field(default=None, ge=1)
 
     @field_validator("repos", "exclude_repos")
