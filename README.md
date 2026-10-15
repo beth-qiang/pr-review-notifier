@@ -1,74 +1,158 @@
 # PR Review Notifier (`prn`)
 
-A local GitHub PR inbox for macOS. The command is `prn`, short for **PR Review Notifier**; `pr-review-notifier` works too. It has a menu bar icon with a dropdown, desktop notifications, and an interactive terminal inbox. Sections and filters live in a YAML file you can edit by hand. It's modeled on Graphite's inbox.
+A local GitHub PR inbox for macOS. The command is `prn`, short for **PR Review Notifier**; `pr-review-notifier` works too.
+
+- **Menu bar app:** an inbox icon with a badge count. Its dropdown lists your PRs grouped into sections, and clicking one opens it on GitHub.
+- **Desktop notifications:** you get one when a PR needs you, when your review is re-requested, or when your own PR is approved, reviewed, or finishes CI.
+- **Interactive terminal inbox:** run `prn` to browse, filter, and open PRs from the keyboard.
+- **Configurable sections:** each section is a named set of filters (repos, authors, review state, CI, and more) in a YAML file you can edit by hand.
+
+It's modeled on Graphite's inbox, and everything runs locally on your Mac.
+
+## Contents
+
+- [Requirements](#requirements)
+- [Install](#install)
+- [Upgrading](#upgrading)
+- [Uninstall](#uninstall)
+- [Using it](#using-it)
+- [Read and unread](#read-and-unread)
+- [The starter sections](#the-starter-sections)
+- [Config reference](#config-reference)
+- [Notifications](#notifications)
+- [How it works](#how-it-works)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+
+## Requirements
+
+- **macOS:** version 13 (Ventura) or later is recommended. Login Items only shows the app's name and icon on 13+.
+- **Xcode Command Line Tools:** Homebrew installs these. They provide `otool` and `install_name_tool`, which are used to build the app. If you don't have them, run `xcode-select --install`.
+- **A GitHub account with access to the repos you want to watch.** For the **Team Review Requested** section, you also need to be a member of the GitHub teams that get requested.
+
+`setup.sh` installs everything else for you, and asks first: Homebrew, [uv](https://docs.astral.sh/uv/), the GitHub CLI (`gh`), and `terminal-notifier`.
 
 ## Install
 
-You need macOS. Everything else is handled by the setup script.
-
 ```bash
-git clone <this repo> && cd pr-review-notifier
+git clone https://github.com/sepiette/pr-review-notifier.git
+cd pr-review-notifier
 ./setup.sh
 ```
 
-`setup.sh` is interactive and safe to re-run. It:
+`setup.sh` is interactive. It explains each step, asks before installing anything, and is safe to re-run. In order, it:
 
-1. Checks for Homebrew, [uv](https://docs.astral.sh/uv/), the GitHub CLI (`gh`), and `terminal-notifier` (all required), and offers to install anything missing. It asks before installing each one.
-2. Makes sure `gh` is logged in with the `read:org` scope. prn reuses the `gh` token, so it never stores a token of its own.
-3. Installs the `prn` command (and its long alias, `pr-review-notifier`) with `uv tool install`, and offers to add uv's bin directory to your PATH.
-4. Runs the setup wizard (`prn setup`), which creates `./config.yaml` from `config.example.yaml`. The wizard asks for:
-   - **Repos to watch.** It checks that you have access to each one.
-   - **Teammates.** It suggests the people whose PRs you've reviewed most in the last 90 days.
-   - **Which starter sections to keep.**
-   - **Poll interval and notification types.**
-5. Runs a first poll, which records the current state silently so you don't get a burst of notifications.
-6. Builds the **PR Review Notifier** macOS app (see below), sends a test notification, installs the menu bar app as a login item, and runs `prn doctor`.
+1. **Checks dependencies.** It looks for Homebrew, uv, `gh`, and `terminal-notifier`, and offers to install any that are missing. All four are required.
+2. **Checks GitHub auth.** If `gh` isn't logged in, it runs `gh auth login`. It also makes sure the token has the `read:org` scope, which team review requests need. prn reuses the `gh` token and never stores a token of its own.
+3. **Installs the command.** It installs `prn` (and `pr-review-notifier`) with `uv tool install --editable`, so prn runs straight from this folder. If uv's bin directory (`~/.local/bin`) isn't on your PATH, it offers to add it.
+4. **Runs the setup wizard** (`prn setup`), which creates `./config.yaml` from `config.example.yaml`. It asks for:
+   - **Repos to watch**, as `owner/name` separated by commas. It checks that you can access each one.
+   - **Teammates.** It shows the people whose PRs you've reviewed most in those repos over the last 90 days. Pick them by number, type usernames, or both.
+   - **Which of the 7 starter sections to keep.** See [The starter sections](#the-starter-sections).
+   - **Poll interval** (default 300 seconds), and which notification types you want.
+5. **Fetches your PRs.** The first poll records the current state silently, so you don't get a burst of notifications about PRs that already exist.
+6. **Builds the PR Review Notifier app** with `prn app install`, so notifications say "PR Review Notifier" instead of "Python". See [Why there's an app](#why-theres-a-pr-review-notifierapp).
+7. **Sends a test notification.** macOS may ask you to allow notifications from PR Review Notifier. Click **Allow**.
+8. **Starts the menu bar app** and adds it as a login item, so it launches at login.
+9. **Runs a health check** (`prn doctor`). Every line should show ✓.
 
-If `./config.yaml` already exists, re-running setup lets you **keep** it (reinstall and restart only), **reconfigure** it with your current values as defaults, or start **fresh** from the example. Before overwriting, it backs up the old file to `config.yaml.bak-<timestamp>`.
+When it finishes, the inbox icon appears in your menu bar.
 
-**Upgrading:** setup installs prn in editable mode, so `git pull` is all you need. The menu bar app notices the code change, checks that the new code imports, and restarts itself within a few seconds. If the new code fails to import, it keeps running the old version and sends a notification. Re-run `./setup.sh` (choose **keep**) only when `pyproject.toml` dependencies change.
+### Re-running setup
 
-**Config changes apply on save:** when you save `config.yaml`, the menu bar app validates it and re-polls within about 3 seconds. If the file is invalid, you get one notification with the error, the menu bar shows ⚠, and the last good inbox stays visible until you fix it.
+If `./config.yaml` already exists, setup asks what to do with it:
 
-### Why there's a "PR Review Notifier.app"
+| Choice | What happens |
+|---|---|
+| **k**eep | Leave your config alone. Reinstall prn, rebuild the app, and restart the menu bar app |
+| **r**econfigure | Re-run the wizard with your current repos, teammates, and settings as the defaults |
+| **f**resh | Start over from `config.example.yaml` |
 
-macOS labels notifications, Login Items, and Activity Monitor entries with the app a process runs from. A plain Python process shows up as **Python**. To show **PR Review Notifier** and its icon instead, `prn app install` (run by setup) builds `~/Library/Application Support/PR Review Notifier/PR Review Notifier.app`, which contains:
+Before it overwrites anything, it backs up the old file to `config.yaml.bak-<timestamp>`.
 
-- **The menu bar app.** The login item runs it from inside the bundle, using a copy of prn's Python interpreter. If that copy ever can't start (for example after a Python upgrade), it falls back to plain `prn menubar`. Re-run `prn app install` to rebuild it.
-- **A branded notifier.** This is a renamed copy of `terminal-notifier` that sends every notification, so they read "PR Review Notifier" and clicking one opens the PR.
+### Your config stays private
 
-The first notification may ask permission. Allow it under System Settings → Notifications → **PR Review Notifier**. Run `prn test-notification` at any time to check.
+`config.yaml` holds your repos and teammates, and it's gitignored. Only the generic `config.example.yaml` is committed. Setup records where your config lives in `~/.config/prn/config-path`, so the installed command and the menu bar app always find it. To use a different file, run `prn config use <path>`.
 
-### Uninstall
+## Upgrading
+
+```bash
+git pull
+```
+
+prn is installed in editable mode, so pulling is usually all you need. The menu bar app notices the code change, checks that the new code imports, and restarts itself within a few seconds. If the new code fails to import, it keeps running the previous version and sends you a notification.
+
+**Re-run `./setup.sh` and choose keep when:**
+
+- `pyproject.toml` dependencies changed in the pull.
+- You installed prn before the PR Review Notifier app existed, and notifications or Login Items still say "Python". This also switches older installs to editable mode.
+- You upgraded Python through uv. You can also just run `prn app install`.
+
+## Uninstall
 
 ```bash
 ./uninstall.sh
 ```
 
-This stops the menu bar app, removes the login item and the PR Review Notifier app, and runs `uv tool uninstall prn`. It then asks whether to delete `config.yaml` and its backups (default: keep), whether to delete cached state and logs (default: delete), and whether to uninstall `terminal-notifier` (default: keep). It never removes `gh`, `uv`, or Homebrew.
+This stops the menu bar app and removes the login item, the PR Review Notifier app, and the `prn` command. It then asks whether to delete:
 
-### Your config stays private
+- **`config.yaml` and its backups.** Default: keep.
+- **Cached state and logs** in `~/.local/state/prn`. Default: delete.
+- **`terminal-notifier`.** Default: keep.
 
-`config.yaml`, which holds your repos and teammates, is gitignored. Only the generic `config.example.yaml` is committed. Setup stores the location of your config in `~/.config/prn/config-path`, so the installed CLI and the menu bar daemon always find it. To point prn at a different file, run `prn config use <path>`.
+It never removes `gh`, `uv`, or Homebrew.
 
-## Everyday use
+## Using it
 
-| Command | What it does |
+### The menu bar
+
+The icon shows a number: the count of PRs in sections that have `badge: true`. The default config counts the four review sections. When the last poll failed, a ⚠ appears next to it.
+
+The dropdown contains:
+
+```
+PR Review Notifier
+───────────────────────────────
+Teammates Need Review (2)
+   ✓   app-workflow#123  Add order export…   · teammate-one
+   ● ◆ infra-gitops#45   Bump chart version… · teammate-two
+───────────────────────────────
+My Draft PRs (1)
+   ✗   api-llm#9  WIP: retry logic  (draft)  · you
+───────────────────────────────
+✓ ✗ ● CI   ◆ approved / changes requested
+───────────────────────────────
+Refresh now                ⌘R
+Open inbox (Terminal)
+Edit config…
+Last updated 10:42 AM · next in 4m
+───────────────────────────────
+Quit PR Review Notifier    ⌘Q
+```
+
+- **CI status:** green ✓ passed, red ✗ failed, orange ● running. A blank means no checks.
+- **Review status:** green ◆ approved, red ◆ changes requested.
+- **Drafts:** shown dimmed and labelled "(draft)".
+- **Read PRs:** muted until there's new activity. See [Read and unread](#read-and-unread).
+- **Click a PR** to open it on GitHub and mark it read.
+- **Refresh now** polls immediately. **Open inbox (Terminal)** opens the interactive inbox in Terminal. **Edit config…** opens `config.yaml` in your default text editor.
+
+Empty sections are hidden (`hide_empty_sections`). Sections with `display: false` are never shown.
+
+### The terminal inbox
+
+Run `prn` (or `pr-review-notifier`). Sections and PRs are on the left, with PRs you've already read muted. The selected PR's details are on the right: reviews, requested reviewers, approvals, CI, labels, and your own review state. The view updates by itself whenever the menu bar app polls.
+
+| Key | Action |
 |---|---|
-| `prn` | Interactive inbox. `↑/↓` move, `Enter` opens on GitHub, `y` copies the URL, `m` toggles read/unread, `M` marks everything read, `r` refreshes, `/` filters, `q` quits. See [Read and unread](#read-and-unread) |
-| `prn list [-s NAME] [--json] [-r]` | Print the inbox (optionally refresh first) |
-| `prn refresh` | Poll now. Use it after finishing reviews so the inbox updates right away |
-| `prn sections list` | Sections in evaluation order |
-| `prn sections add NAME [flags] / -i` | Add a section with flags, or with prompts (`-i`) |
-| `prn sections remove NAME` / `move NAME --to N` | Remove or reorder sections |
-| `prn setup` | Re-run the configuration wizard on its own |
-| `prn config edit` / `validate` / `path` / `use PATH` | Edit in `$EDITOR`, then validate. Show or change the active config file |
-| `prn daemon install / uninstall / restart / status / logs -f` | Manage the login item |
-| `prn app install / uninstall / status` | Build or remove the PR Review Notifier app (notification sender and menu bar app) |
-| `prn test-notification` | Send a test notification |
-| `prn doctor` | Health check |
-
-**How the inbox stays current.** The menu bar app polls GitHub every `poll_interval_seconds` (default 300). Each poll rewrites `~/.local/state/prn/inbox.json`, and both the TUI and the menu bar redraw when that file changes. When you finish a review, the PR moves or disappears on the next poll. To skip the wait, press `r` in the TUI, choose **Refresh now** in the menu bar, or run `prn refresh`.
+| `↑` / `↓` | Move |
+| `Enter` or `o` | Open the PR on GitHub |
+| `y` | Copy the PR URL |
+| `m` | Toggle the selected PR between read and unread |
+| `M` | Mark every PR shown as read |
+| `r` | Refresh now |
+| `/` | Filter by title, repo, number, author, or label (`Esc` clears it) |
+| `q` | Quit |
 
 ### Read and unread
 
@@ -90,77 +174,206 @@ Once you've looked at a PR, it fades so new activity stands out. This works in b
 
 Read state lives in `~/.local/state/prn/seen.json`. An entry is removed once its PR has left the inbox for 30 days. If the PR comes back after that, it shows as unread.
 
+### Commands
+
+| Command | What it does |
+|---|---|
+| `prn` | Interactive inbox |
+| `prn list [-s NAME] [--json] [-r] [-a]` | Print the inbox: one section only (`-s`), as JSON, refresh first (`-r`), include empty sections (`-a`) |
+| `prn refresh` | Poll GitHub now. Notifications go out for anything new |
+| `prn sections list` | Sections in evaluation order, with their filters |
+| `prn sections add NAME [flags]` / `-i` | Add a section with flags, or answer prompts (`-i`). See [Adding sections](#adding-sections-from-the-command-line) |
+| `prn sections remove NAME` | Remove a section |
+| `prn sections move NAME --to N` | Move a section to position N. Order matters: first match wins |
+| `prn setup` | Run the configuration wizard on its own |
+| `prn config edit` | Open the config in `$EDITOR`, then validate it |
+| `prn config validate` | Check the config and show exactly what's wrong |
+| `prn config path` / `use PATH` | Show the active config file, or switch to another one |
+| `prn config init [--path P]` | Copy `config.example.yaml` into place. Setup normally does this |
+| `prn app install` / `uninstall` / `status` | Build, remove, or inspect the PR Review Notifier app |
+| `prn test-notification` | Send a test notification |
+| `prn daemon install` / `uninstall` / `restart` / `status` | Manage the login item that runs the menu bar app |
+| `prn daemon logs [-n N] [-f]` | Show (or follow) the log |
+| `prn menubar` | Run the menu bar app in the foreground, which is useful for debugging |
+| `prn doctor` | Health check: gh, auth, terminal-notifier, config, app, login item, last poll |
+
+## The starter sections
+
+Every PR is checked against the sections from top to bottom, and it appears only in the **first** section it matches. So order matters. Use `prn sections move` or edit the YAML to change it.
+
+| # | Section | What it catches | Notify | Badge |
+|---|---|---|---|---|
+| 1 | **Teammates Need Review** | Teammates' non-draft PRs with no approvals that are waiting on you: you haven't reviewed yet, or the author re-requested your review | ✓ | ✓ |
+| 2 | **Teammates Reviewed Not Approved by Me** | Teammates' non-draft PRs that someone (you included) has reviewed, but that you haven't approved | ✓ | ✓ |
+| 3 | **Team Review Requested** | PRs where a team you're on was requested, but you weren't requested directly. Your own PRs are excluded | ✓ | ✓ |
+| 4 | **Direct Review Request** | PRs where you were requested directly as a reviewer | ✓ | ✓ |
+| 5 | **My Approved PRs** | Your PRs that GitHub considers approved | ✓ | |
+| 6 | **My Open PRs** | Your other non-draft PRs | | |
+| 7 | **My Draft PRs** | Your drafts | | |
+
+How a teammate's PR moves through the sections:
+
+- When it opens, it lands in **Teammates Need Review**.
+- Once you leave any review (a comment, changes requested, or a reply in a review thread), it moves to **Teammates Reviewed Not Approved by Me**. Moves caused by your own review don't send a notification.
+- It goes back to **Teammates Need Review** only if the author re-requests your review directly, and only while it still has no approvals. If someone else has already approved it, it stays in Reviewed Not Approved by Me.
+- Once you approve it, it leaves both teammate sections.
+
 ## Config reference
 
-Your config is `./config.yaml` (run `prn config path` to confirm). Saving it triggers a re-poll within about 3 seconds, so no restart is needed. See `config.example.yaml` for a fully commented example.
+Your config is `./config.yaml`; run `prn config path` to check. **When you save it, the menu bar app validates it and re-polls within about 3 seconds**, so you don't need to restart anything. If the file is invalid, you get one notification describing the error, the menu bar shows ⚠, and the last good inbox stays visible until you fix it. `config.example.yaml` has every option with comments.
 
 ```yaml
 settings:
-  poll_interval_seconds: 300   # >= 60
-  notifier: terminal-notifier  # or osascript (notifications won't be clickable)
-  hide_empty_sections: true    # menu bar only
-  max_title_length: 50
-  read_tracking: true          # fade PRs you've opened; false turns it off everywhere
-  ignore_bot_reviews: false
-  ignored_reviewers: [coderabbitai]   # never count toward approvals / has_reviews_from_others
-  notifications: { new_in_section: true, re_review_requested: true, my_pr_status: true, ci_status: true }
+  poll_interval_seconds: 300       # how often to poll GitHub (minimum 60)
+  open_with: github                # where PR links open
+  notifier: terminal-notifier      # terminal-notifier (branded + clickable) | osascript
+  hide_empty_sections: true        # in the menu bar dropdown
+  max_title_length: 50             # PR title truncation in the dropdown
+  read_tracking: true              # fade PRs you've opened until there's new activity; false turns it off
+  ignore_bot_reviews: false        # true: bot reviews don't count for has_reviews / has_reviews_from_others
+  ignored_reviewers: [coderabbitai]  # these reviewers never count toward approvals or "has reviews"
+  notifications:                   # turn each notification type on or off
+    new_in_section: true
+    re_review_requested: true
+    my_pr_status: true
+    ci_status: true
 
 defaults:
-  repos: [your-org/repo-one, ...]              # used by any section without its own repos
+  repos: [your-org/repo-one, your-org/repo-two]   # used by every section without its own `repos:`
 
 groups:
-  teammates: [teammate-one, ...]               # reference as group:teammates
+  teammates: [teammate-one, teammate-two]          # use as `group:teammates` in authors / exclude_authors
 
-sections:                                      # evaluated top-down; first match wins
+sections:                          # checked top to bottom; first match wins
   - name: Teammates Need Review
-    notify: true      # notify when a PR newly enters this section
-    badge: true       # count toward the menu bar number
-    display: true     # false: still claims matching PRs, but hides the section from the menu bar, `prn`, and `prn list` (and never sends "New in section" notifications)
-    filters: { authors: [group:teammates], draft: false, approvals: { max: 0 } }
+    notify: true                   # notify when a PR newly enters this section (default true)
+    badge: true                    # count toward the menu bar number (default false)
+    display: true                  # false: still claims matching PRs, but hides the section everywhere
+                                   #        and never sends "New in section" notifications
+    filters:
+      authors: [group:teammates]
+      draft: false
+      approvals: { max: 0 }
+      awaiting_my_review: true
 ```
+
+`ignored_reviewers` accepts logins with or without the `[bot]` suffix. `coderabbitai` and `coderabbitai[bot]` both work.
+
+A section with `display: false` is useful for removing PRs you don't care about from later sections. For example, a hidden "Has conflicts" section near the top keeps conflicted PRs out of your review sections.
 
 ### Filters
 
-All filters in a section must match (AND). List values match if any item matches (OR).
+All filters in a section must match (AND). Inside a list, any one item can match (OR).
 
 | Key | Values | Meaning |
 |---|---|---|
-| `repos` / `exclude_repos` | `owner/name` list | Overrides or subtracts from `defaults.repos` |
-| `authors` / `exclude_authors` | usernames, `@me`, `group:<name>` | PR author |
-| `review_requested` | `me` · `team` · `any` · `none` | `me` means you're requested directly. `team` means a team you're on is requested, but not you directly |
-| `my_review` | `none` · `commented` · `changes_requested` · `approved` · `dismissed`, or `{not: <state>}` | Your latest *opinionated* review. A comment after an approval still counts as approved |
-| `review_decision` | `approved` · `changes_requested` · `review_required` · `none` | GitHub's overall decision |
-| `approvals` | `{min: N, max: N}` | Count of current approving reviews |
+| `repos` / `exclude_repos` | `owner/name` list | Replaces, or removes repos from, `defaults.repos` for this section |
+| `authors` / `exclude_authors` | usernames, `@me`, `group:<name>` | Who opened the PR |
+| `review_requested` | `me` · `team` · `any` · `none` | `me`: you're requested directly. `team`: a team you're on is requested, but not you directly |
+| `my_review` | `none` · `commented` · `changes_requested` · `approved` · `dismissed`, or `{not: <state>}` | Your latest review that approved or requested changes. A comment after an approval still counts as approved |
+| `review_decision` | `approved` · `changes_requested` · `review_required` · `none` | GitHub's overall review decision |
+| `approvals` | `{min: N, max: N}` | Number of current approvals, not counting `ignored_reviewers` |
 | `has_reviews_from_others` | `true` / `false` | Someone other than you and the author has reviewed |
 | `has_reviews` | `true` / `false` | Anyone other than the author has reviewed, including you |
-| `awaiting_my_review` | `true` / `false` | You haven't submitted any review yet, or your review was re-requested *directly* (pending team requests don't count) |
+| `awaiting_my_review` | `true` / `false` | You haven't reviewed yet, or your review was re-requested **directly**. Pending team requests don't count |
 | `draft` | `true` / `false` | |
-| `labels` / `exclude_labels` | names | Has any / has none (case-insensitive) |
-| `ci` | `success` · `failure` · `pending` · `none` | Rollup status of the latest commit |
-| `conflicts` | `true` / `false` | GitHub reports merge conflicts with the base branch. While GitHub is still computing, it counts as no conflicts |
-| `ready_to_merge` | `true` / `false` | GitHub's merge state is clean: branch protection is satisfied (required reviews and required checks such as policy-bot), every other check passed, and there are no conflicts. While GitHub is still computing, it counts as not ready |
-| `awaiting_approval_from` | usernames | Any of these reviewers hasn't approved the PR's latest commit (e.g. `[coderabbitai]` while it re-reviews a new push). Not affected by `ignored_reviewers` |
-| `approved_by` | usernames | Any of these reviewers has approved the PR's latest commit. An approval on an older commit doesn't count. Not affected by `ignored_reviewers` |
-| `updated_within_days` | int | |
+| `labels` / `exclude_labels` | names | Has any of these labels / has none of them (case-insensitive) |
+| `ci` | `success` · `failure` · `pending` · `none` | Combined check status of the latest commit |
+| `conflicts` | `true` / `false` | GitHub reports merge conflicts with the base branch. While GitHub is still computing, this counts as no conflicts |
+| `ready_to_merge` | `true` / `false` | GitHub's merge state is clean: branch protection is satisfied (required reviews and required checks such as policy-bot), every other check passed, and there are no conflicts. While GitHub is still computing, this counts as not ready |
+| `awaiting_approval_from` | usernames | Any of these reviewers hasn't approved the PR's **latest commit**, for example `[coderabbitai]` while it re-reviews a new push. Not affected by `ignored_reviewers` |
+| `approved_by` | usernames | Any of these reviewers has approved the PR's **latest commit**. An approval on an older commit doesn't count. Not affected by `ignored_reviewers` |
+| `updated_within_days` | number | Updated within the last N days |
 
-Unknown keys or bad values are rejected. `prn config validate` tells you exactly where.
+Unknown keys and bad values are rejected with the exact location of the problem. If an unknown key is a newer setting, the error message tells you to reinstall.
 
-### Notifications
+### Adding sections from the command line
 
-| Event | When |
+`prn sections add` writes to `config.yaml` and keeps your comments. Each flag maps to a filter:
+
+| Flag | Filter |
 |---|---|
-| New in section | A PR enters a section with `notify: true` (including moving between sections). Moves caused by your own review are silent |
-| Re-review requested | You'd reviewed, and the author requests your review again |
-| My PR status | Your PR's review decision changes, or someone else leaves a review or comment |
-| CI | Your PR's checks finish as passed or failed |
+| `--authors a,b` / `--exclude-authors a,b` | `authors` / `exclude_authors` |
+| `--repos o/r,o/r` / `--exclude-repos …` | `repos` / `exclude_repos` |
+| `--review-requested me\|team\|any\|none` | `review_requested` |
+| `--my-review approved` or `--my-review not:approved` | `my_review` |
+| `--review-decision approved` | `review_decision` |
+| `--min-approvals N` / `--max-approvals N` | `approvals` |
+| `--has-reviews` / `--no-reviews` | `has_reviews` |
+| `--has-reviews-from-others` / `--no-reviews-from-others` | `has_reviews_from_others` |
+| `--awaiting-my-review` / `--not-awaiting-my-review` | `awaiting_my_review` |
+| `--draft` / `--not-draft` | `draft` |
+| `--labels a,b` / `--exclude-labels a,b` | `labels` / `exclude_labels` |
+| `--ci failure` | `ci` |
+| `--updated-within-days N` | `updated_within_days` |
+| `--notify/--no-notify`, `--badge/--no-badge`, `--position N` | section options |
 
-Multiple events for one PR are combined into a single notification. If more than 5 PRs change in one poll, you get one summary notification instead.
+There are no flags yet for `conflicts`, `ready_to_merge`, `awaiting_approval_from`, `approved_by`, or `display`; set those in the YAML.
+
+Example:
+
+```bash
+prn sections add "Failing CI on my PRs" --authors @me --ci failure --badge --position 5
+```
+
+## Notifications
+
+Notifications come from **PR Review Notifier**, with its own icon. Clicking one opens the PR.
+
+| Event | When it fires |
+|---|---|
+| New in section | A PR enters a section that has `notify: true`, including when it moves between sections. Silent when the move was caused by your own review, or when the section has `display: false` |
+| Re-review requested | You'd already reviewed, and you've been requested again |
+| My PR status | Your PR's review decision changes, or someone else leaves a review or comment. Your own replies don't count |
+| CI | Checks on your PR finish as passed or failed |
+
+- **One notification per PR:** if several events hit the same PR in one poll, they're combined.
+- **Busy polls:** if more than 5 PRs change at once, you get a single summary instead.
+- **First run:** setup's first poll is silent, so PRs that were already open don't flood you.
+- **App alerts:** you also get a notification when you save an invalid `config.yaml`, or when a code update fails to load.
+- **Turning things off:** each event type has its own setting under `settings.notifications`, and each section has its own `notify` option.
+
+To check notifications are working, run `prn test-notification`. If nothing appears, allow **PR Review Notifier** under System Settings → Notifications.
+
+### Why there's a "PR Review Notifier.app"
+
+macOS labels notifications, Login Items, and Activity Monitor entries with the app a process runs from. A plain Python process shows up as **Python**. To show **PR Review Notifier** instead, `prn app install` (run by setup) builds `~/Library/Application Support/PR Review Notifier/PR Review Notifier.app`. It contains:
+
+- **The menu bar app.** The login item runs it from inside the app, using a copy of prn's Python interpreter. If that copy can't start (for example after a Python upgrade), the login item falls back to plain `prn menubar` until you run `prn app install` again.
+- **A branded notifier.** A renamed copy of `terminal-notifier` that sends every notification.
 
 ## How it works
 
-- **Auth:** the app uses `gh auth token` (or `GITHUB_TOKEN`/`GH_TOKEN` if set). The GitHub MCP is only used while developing. The running app talks to GitHub's GraphQL API directly.
-- **Fetching:** prn builds the fewest search queries that cover every section (currently 3 per poll for the default config), staying under GitHub's 256-character query limit. Filtering then happens locally. That's how it can tell team requests from direct ones, count approvals, and check "others reviewed but I haven't approved".
-- **State:** files live in `~/.local/state/prn/`. `inbox.json` is the rendered inbox, `snapshot.json` is the last-seen PR state used to detect changes, and `prn.log` is the log.
+- **Auth:** prn uses `gh auth token`, or `GITHUB_TOKEN` / `GH_TOKEN` if one is set, and talks to GitHub's GraphQL API directly.
+- **Fetching:** each poll runs the smallest set of GitHub searches that covers every section (3 for the default config), keeping each under GitHub's 256-character limit. Filtering then happens locally. That's how prn can tell team requests from direct ones, count approvals, ignore reviewers, and check "reviewed but not approved by me".
+- **Polling and live updates:** the menu bar app polls on a timer and writes the results to `inbox.json`. The terminal inbox and the dropdown redraw whenever that file changes. Saving `config.yaml` triggers a re-poll, and code changes trigger a restart.
+- **Files:**
+
+  | Path | What |
+  |---|---|
+  | `./config.yaml` | Your config (gitignored) |
+  | `~/.config/prn/config-path` | Points the installed command at your config |
+  | `~/.local/state/prn/inbox.json` | The rendered inbox |
+  | `~/.local/state/prn/snapshot.json` | Last-seen PR state, used to detect changes |
+| `~/.local/state/prn/seen.json` | Read/unread state: what each PR looked like when you last opened it |
+  | `~/.local/state/prn/prn.log` | App log (`prn daemon logs`) |
+  | `~/.local/state/prn/menubar.out.log` | Output from the menu bar process (startup errors land here) |
+  | `~/Library/LaunchAgents/com.prn.menubar.plist` | The login item |
+  | `~/Library/Application Support/PR Review Notifier/` | The PR Review Notifier app |
+
+## Troubleshooting
+
+Start with `prn doctor`. It checks everything below and tells you what to run.
+
+- **No menu bar icon:** run `prn daemon status` and `prn daemon logs`, and check `~/.local/state/prn/menubar.out.log`. Running `prn menubar` in a terminal shows errors directly.
+- **⚠ in the menu bar:** the last poll failed. The line under "PR Review Notifier" at the top of the dropdown says why. Common causes are an invalid config (`prn config validate`) and expired GitHub auth (`gh auth login`).
+- **Notifications don't appear:** allow **PR Review Notifier** under System Settings → Notifications, then run `prn test-notification`. If `prn doctor` says the app isn't built, run `prn app install`.
+- **Notifications or Login Items still say "Python":** the app isn't being used. Run `prn app install`; it also points the login item at the app.
+- **`prn app install` fails:** make sure the Command Line Tools are installed (`xcode-select --install`) and that `terminal-notifier` is installed (`brew install terminal-notifier`). Then run it again. Until it succeeds, notifications still work through plain terminal-notifier.
+- **"Unknown key" config error after `git pull`:** your config uses a newer setting than the installed code supports. Re-run `./setup.sh` and choose keep.
+- **"gh not found" from the menu bar app:** the login item uses a minimal PATH that includes `~/.local/bin`, `/opt/homebrew/bin`, and `/usr/local/bin`. If `gh` is installed somewhere else, set `GITHUB_TOKEN` in the login item's `EnvironmentVariables` (`~/Library/LaunchAgents/com.prn.menubar.plist`).
+- **Team Review Requested is empty:** your `gh` token needs `read:org`. Check with `gh auth status`, and fix it with `gh auth refresh -s read:org`.
+- **A PR is in the "wrong" section:** remember that the first matching section wins. Run `prn sections list` to see the order and filters.
 
 ## Development
 
@@ -169,21 +382,17 @@ uv venv && uv pip install -e '.[dev]'
 uv run pytest
 ```
 
-## Troubleshooting
+- **Tests:** they don't need GitHub or macOS. GitHub responses and macOS tools are faked.
+- **Running from your checkout:** setup's editable install runs your local changes directly, and the menu bar app restarts itself when you save a file under `src/`.
+- **Pull requests:** open them from a fork against `main`, and leave **Allow edits from maintainers** ticked so conflicts can be resolved on your branch. Don't commit `config.yaml` or anything with personal usernames or repos; tests use `alice`, `bob`, and `acme/*`.
 
-- **No menu bar icon:** run `prn daemon status` and `prn daemon logs`, or run `prn menubar` in a terminal to see errors directly.
-- **"gh not found" from the daemon:** launchd uses a minimal PATH. prn also checks `/opt/homebrew/bin` and `/usr/local/bin`. If `gh` is installed somewhere else, set `GITHUB_TOKEN` in the plist's `EnvironmentVariables`.
-- **Notifications don't appear:** in System Settings → Notifications, allow **PR Review Notifier**. Then run `prn test-notification`. If `prn doctor` says the app isn't built, run `prn app install`.
-- **Notifications or Login Items still say "Python":** the app bundle isn't being used. Run `prn app install`, which also points the login item at the app.
-- **Team Review Requested is empty:** your `gh` token needs `read:org`. Check with `gh auth status`, and fix with `gh auth refresh -s read:org`.
+### Smoke test on a Mac
 
-## Smoke test (first run on your Mac)
-
-1. Run `./setup.sh`. Every step should finish with ✓, and the test notification should appear.
-2. Check that the inbox icon appears in the menu bar with your badge count, and that clicking a PR opens it.
+1. Run `./setup.sh`. Every step should show ✓, and the test notification should say "PR Review Notifier".
+2. Check that the inbox icon shows your badge count, and that clicking a PR opens it.
 3. Run `prn list` and spot-check two or three PRs per section against GitHub.
-4. Run `prn` and check that arrows move the selection, Enter opens the browser, `/` filters, and `r` refreshes.
-5. Run `git status` and confirm that `config.yaml` does **not** show up.
-6. Approve a PR from **Direct Review Request**, then choose **Refresh now**. It should leave the section, with no notification.
-7. Ask a teammate to re-request your review (or open a test PR yourself). Within one poll you should get a clickable notification.
-8. Run `prn sections add "Test" --labels urgent && prn refresh && prn sections remove Test`. Comments in your YAML should survive.
+4. Run `prn` and check that the arrow keys, `Enter`, `m`, `/`, and `r` work. Opened PRs should fade.
+5. Run `git status` and confirm `config.yaml` doesn't appear.
+6. Review a teammate's PR without approving it, then choose **Refresh now**. It should move to Reviewed Not Approved by Me, with no notification.
+7. Have a teammate re-request your review. Within one poll, you should get a clickable notification, and the PR should move back to Teammates Need Review.
+8. Change `poll_interval_seconds` in `config.yaml` and save. Within about 3 seconds the dropdown should show "Config changed, refreshing…" or a new "Last updated" time.
