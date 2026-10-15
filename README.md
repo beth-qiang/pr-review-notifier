@@ -117,6 +117,7 @@ All filters in a section must match (AND). List values match if any item matches
 | `labels` / `exclude_labels` | names | Has any / has none (case-insensitive) |
 | `ci` | `success` · `failure` · `pending` · `none` | Rollup status of the latest commit |
 | `conflicts` | `true` / `false` | GitHub reports merge conflicts with the base branch. While GitHub is still computing, it counts as no conflicts |
+| `ready_to_merge` | `true` / `false` | GitHub's merge state is clean: branch protection is satisfied (required reviews and required checks such as policy-bot), every other check passed, and there are no conflicts. While GitHub is still computing, it counts as not ready |
 | `awaiting_approval_from` | usernames | Any of these reviewers hasn't approved the PR's latest commit (e.g. `[coderabbitai]` while it re-reviews a new push). Not affected by `ignored_reviewers` |
 | `updated_within_days` | int | |
 

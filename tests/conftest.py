@@ -68,6 +68,7 @@ def node(
     updated="2026-10-14T09:00:00Z",
     title=None,
     mergeable="MERGEABLE",
+    merge_state="BLOCKED",
     head="head-sha",
 ):
     """Build a GraphQL-shaped PullRequest node."""
@@ -94,6 +95,7 @@ def node(
         "updatedAt": updated,
         "reviewDecision": decision,
         "mergeable": mergeable,
+        "mergeStateStatus": merge_state,
         "repository": {"nameWithOwner": repo},
         "author": actor(author),
         "labels": {"nodes": [{"name": l} for l in labels]},
