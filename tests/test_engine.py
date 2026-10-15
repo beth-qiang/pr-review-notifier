@@ -164,3 +164,24 @@ sections:
            parse_pr(node(labels=["urgent"], ci="FAILURE", updated="2026-10-01T00:00:00Z"))]
     res = evaluate(prs, c, ME, now=now)
     assert [p.number for p in res[0].prs] == [hit["number"]]
+
+
+def test_hidden_section_claims_prs_but_is_left_out_of_inbox():
+    from prn import store
+    from prn.config import parse
+    c = parse("""
+defaults: {repos: [acme/web]}
+sections:
+  - name: Parked
+    display: false
+    filters: {labels: [blocked]}
+  - name: Everything
+    filters: {}
+""")
+    blocked, clean = node(labels=["blocked"]), node()
+    res = evaluate([parse_pr(blocked), parse_pr(clean)], c, ME)
+    assert [p.number for p in res[0].prs] == [blocked["number"]]
+    store.write_inbox(res, ME, next_poll_at=None)
+    inbox = store.read_inbox()
+    assert [s.name for s in inbox.sections] == ["Everything"]
+    assert [p.number for p in inbox.sections[0].prs] == [clean["number"]]

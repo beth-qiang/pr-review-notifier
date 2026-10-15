@@ -79,6 +79,7 @@ class Section(_Strict):
     name: str = Field(min_length=1)
     notify: bool = True
     badge: bool = False
+    display: bool = True     # false: still claims matching PRs, but is left out of every inbox view
     filters: Filters = Field(default_factory=Filters)
 
 

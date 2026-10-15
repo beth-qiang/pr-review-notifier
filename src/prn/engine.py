@@ -16,6 +16,7 @@ class SectionResult:
     notify: bool
     badge: bool
     prs: list[PR] = field(default_factory=list)
+    display: bool = True
 
 
 def matches(pr: PR, section: Section, cfg: Config, me: str, now: Optional[datetime] = None) -> bool:
@@ -101,7 +102,7 @@ def matches(pr: PR, section: Section, cfg: Config, me: str, now: Optional[dateti
 
 
 def evaluate(prs: list[PR], cfg: Config, me: str, now: Optional[datetime] = None) -> list[SectionResult]:
-    results = [SectionResult(s.name, s.notify, s.badge) for s in cfg.sections]
+    results = [SectionResult(s.name, s.notify, s.badge, display=s.display) for s in cfg.sections]
     for pr in prs:
         for sec, res in zip(cfg.sections, results):
             if matches(pr, sec, cfg, me, now):
