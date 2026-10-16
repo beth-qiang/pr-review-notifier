@@ -291,3 +291,56 @@ def test_entries_from_earlier_weeks_are_cleared_unless_the_pr_is_still_in_the_in
     paths.seen_path().write_text(json.dumps(data))
     store.mark_read([], ME, live_keys={live.key})             # any write triggers the prune
     assert set(store.read_seen()) == {this_week.key, live.key}
+
+
+# ---------------------------------------------------------------- collapsed / dependency bumps
+
+
+def bumps_config():
+    from prn import config as config_mod
+
+    text = (config_mod.example_config_text().replace("your-org/repo-one", "acme/web")
+            .replace("your-org/repo-two", "acme/api").replace("teammate-one", "alice").replace("teammate-two", "bob"))
+    text = text.replace("groups:\n", "groups:\n  bots: [dependabot, renovate]\n", 1)
+    text = text.replace("  - name: Team Review Requested\n", """  - name: Dependency Bumps
+    notify: false
+    badge: false
+    menu: hidden
+    collapsed: true
+    filters:
+      authors: [group:bots]
+      review_requested: team
+  - name: Team Review Requested
+""")
+    return config_mod.parse(text)
+
+
+def test_bot_prs_requesting_my_team_land_in_dependency_bumps_not_team_review():
+    c = bumps_config()
+    prs = [parse_pr(node(number=n, author=a, req_teams=["core"]), requested_from_me=True)
+           for n, a in ((1, "dependabot"), (2, "renovate"), (3, "carol"))]
+    got = {r.name: [p.number for p in r.prs] for r in evaluate(prs, c, ME)}
+    assert got["Dependency Bumps"] == [1, 2] and got["Team Review Requested"] == [3]
+
+
+def test_dependency_bumps_adds_no_extra_github_searches():
+    from prn.github import plan_queries
+
+    base = plan_queries(bumps_config(), ME)
+    from prn import config as config_mod
+    without = plan_queries(config_mod.parse(config_mod.example_config_text().replace("your-org/repo-one", "acme/web")
+                                            .replace("your-org/repo-two", "acme/api")), ME)
+    assert not any("author:dependabot" in q or "author:renovate" in q for q in base)
+    assert len(base) == len(without)
+
+
+def test_collapsed_default_comes_from_config_and_group_uses_its_first_section():
+    c = bumps_config()
+    publish(c, node(number=1, author="dependabot", req_teams=["core"]))
+    out = web.payload(store.read_inbox(), {}, collapsed={s.name for s in c.sections if s.collapsed})
+    by = {s["name"]: s["collapsed"] for s in out["sections"]}
+    assert by["Dependency Bumps"] is True and by["Teammates Need Review"] is False
+
+    groups = {"My Approved PRs": "My PRs", "My Open PRs": "My PRs"}
+    out = web.payload(store.read_inbox(), {}, groups, collapsed={"My Approved PRs"})
+    assert next(s for s in out["sections"] if s["name"] == "My PRs")["collapsed"] is True

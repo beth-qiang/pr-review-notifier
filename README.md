@@ -151,6 +151,7 @@ Empty sections are hidden (`hide_empty_sections`). Sections with `display: false
 - Each row shows the repo and number, the title, the author, and a chip for every reviewer: green ✓ approved, red ✗ requested changes, outlined for a comment. Bots are dimmed, and a bot's approval is slate blue instead of green. Your own review shows as "you".
 - CI status is shown only on your own PRs.
 - **Read / Unread** and **Mark all read** use the same read state as the menu bar and terminal inbox. Clicking a title marks it read.
+- A section with `collapsed: true` starts collapsed. Once you expand or collapse a section yourself, the dashboard remembers your choice instead.
 - Sections that share a `group:` are shown as one table with a status column (approved, open, draft). For example, put `group: My PRs` on the three "My ..." sections.
 
 The server listens on localhost only and needs a per-run token, so other web pages can't read or change anything. If port 8787 is taken, the menu bar app still runs and "Open dashboard" opens whatever is on that port.
@@ -271,6 +272,7 @@ sections:                          # checked top to bottom; first match wins
                                    #        and never sends "New in section" notifications
     menu: rows                     # menu bar dropdown: rows (every PR) | count (one line) | hidden
     group: My PRs                  # web dashboard: sections with the same group are one table (optional)
+    collapsed: true                # web dashboard: start this section collapsed (optional; your own clicks win)
     filters:
       authors: [group:teammates]
       draft: false
@@ -279,6 +281,26 @@ sections:                          # checked top to bottom; first match wins
 ```
 
 `ignored_reviewers` accepts logins with or without the `[bot]` suffix. `coderabbitai` and `coderabbitai[bot]` both work.
+
+**Dependency bumps** make a good quiet section: define a group of bot logins, then put a section for them just before your catch-all review section.
+
+```yaml
+groups:
+  bots: [dependabot, renovate]
+
+sections:
+  # ...
+  - name: Dependency Bumps
+    notify: false
+    badge: false
+    menu: hidden                   # keep it out of the menu bar dropdown
+    collapsed: true                # start collapsed on the dashboard
+    filters:
+      authors: [group:bots]
+      review_requested: team       # reuses the review-requested search, so no extra GitHub queries
+  - name: Team Review Requested
+    # ...
+```
 
 A section with `display: false` is useful for removing PRs you don't care about from later sections. For example, a hidden "Has conflicts" section near the top keeps conflicted PRs out of your review sections.
 

@@ -56,12 +56,14 @@ a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}
 <div id="app">Loading…</div>
 <script>
 const TOKEN = "__TOKEN__";
-const COLLAPSED_KEY = "prn-collapsed";
+const COLLAPSED_KEY = "prn-collapsed-v2";   // {section name: true|false}; a section you haven't touched uses its config default
 const CI = {success: ["CI passing", "green"], failure: ["CI failing", "red"], pending: ["CI running", "amber"]};
 const STATUS = {approved: "green", open: "plain", draft: ""};
 const REVIEWER = {approved: ["✓ ", "green", "approved"], changes_requested: ["✗ ", "red", "requested changes"], commented: ["", "plain", "commented"]};
 let DATA = null;
-const collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "[]"));
+const prefs = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "{}");
+for (const n of JSON.parse(localStorage.getItem("prn-collapsed") || "[]")) if (!(n in prefs)) prefs[n] = true;   // v1 migration
+const isCollapsed = sec => sec.name in prefs ? prefs[sec.name] : sec.collapsed;
 
 const $ = id => document.getElementById(id);
 function el(tag, props = {}, ...kids) {
@@ -91,8 +93,8 @@ async function markDone(keys) {
 }
 function btn(label, onclick) { return el("button", {textContent: label, onclick}); }
 function setCollapsed(names, on) {
-  names.forEach(n => on ? collapsed.add(n) : collapsed.delete(n));
-  localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed]));
+  names.forEach(n => { prefs[n] = on; });
+  localStorage.setItem(COLLAPSED_KEY, JSON.stringify(prefs));
   render();
 }
 
@@ -138,7 +140,7 @@ function render() {
   $("status").textContent = `@${DATA.me} · updated ${when}`;
   const showDone = $("showdone").checked;
   for (const sec of DATA.sections) {
-    const off = collapsed.has(sec.name);
+    const off = isCollapsed(sec);
     const prs = showDone ? sec.prs : sec.prs.filter(p => !p.done);
     const unread = prs.filter(p => p.unread && !p.done).map(p => p.key);
     const open = prs.filter(p => !p.done).map(p => p.key);

@@ -47,13 +47,15 @@ def status(pr: PR) -> str:
 
 
 def payload(inbox: Optional[store.Inbox], seen: Optional[dict[str, dict]],
-            groups: Optional[dict[str, str]] = None) -> dict:
+            groups: Optional[dict[str, str]] = None, collapsed: Optional[set[str]] = None) -> dict:
     """The JSON the page renders. `seen` is None when read tracking is off (everything counts as unread).
     `groups` maps a section name to a group name; sections sharing a group become one table, in the
-    position of the first, and each of its rows shows a status."""
+    position of the first, and each of its rows shows a status. `collapsed` is the set of section names
+    that start collapsed; a group starts collapsed if its first section does."""
     if inbox is None:
         return {"empty": True, "sections": []}
     groups = groups or {}
+    collapsed = collapsed or set()
     me = inbox.me.lower()
     sections: list[dict] = []
     by_group: dict[str, dict] = {}
@@ -77,12 +79,14 @@ def payload(inbox: Optional[store.Inbox], seen: Optional[dict[str, dict]],
         ]
         group = groups.get(s.name)
         if group is None:
-            sections.append({"name": s.name, "badge": s.badge, "grouped": False, "prs": rows})
+            sections.append({"name": s.name, "badge": s.badge, "grouped": False,
+                             "collapsed": s.name in collapsed, "prs": rows})
         elif group in by_group:
             by_group[group]["prs"].extend(rows)
             by_group[group]["badge"] = by_group[group]["badge"] or s.badge
         else:
-            by_group[group] = {"name": group, "badge": s.badge, "grouped": True, "prs": rows}
+            by_group[group] = {"name": group, "badge": s.badge, "grouped": True,
+                               "collapsed": s.name in collapsed, "prs": rows}
             sections.append(by_group[group])
     return {
         "empty": False,
@@ -103,7 +107,8 @@ def current_payload() -> dict:
         cfg = None
     seen = store.read_seen() if cfg is None or cfg.settings.read_tracking else None
     groups = {s.name: s.group for s in cfg.sections if s.group} if cfg else {}
-    return payload(store.read_inbox(), seen, groups)
+    collapsed = {s.name for s in cfg.sections if s.collapsed} if cfg else set()
+    return payload(store.read_inbox(), seen, groups, collapsed)
 
 
 def _items_for(inbox: store.Inbox, keys: set[str]) -> list[tuple]:
