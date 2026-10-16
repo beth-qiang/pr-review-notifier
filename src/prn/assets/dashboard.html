@@ -32,7 +32,6 @@ h2{font-size:15px;margin:28px 0 8px;display:flex;gap:8px;align-items:center;curs
 .row .act{text-align:right}
 .row .act button+button{margin-left:4px}
 .row.done{opacity:.6}
-.n.muted{background:none;color:var(--muted)}
 label.meta{display:flex;gap:4px;align-items:center;cursor:pointer}
 .row .reviewers{display:flex;flex-wrap:wrap;gap:4px;overflow:visible;white-space:normal}
 .empty{color:var(--muted);padding:10px}
@@ -140,7 +139,6 @@ function render() {
   const showDone = $("showdone").checked;
   for (const sec of DATA.sections) {
     const off = collapsed.has(sec.name);
-    const doneCount = sec.prs.filter(p => p.done).length;
     const prs = showDone ? sec.prs : sec.prs.filter(p => !p.done);
     const unread = prs.filter(p => p.unread && !p.done).map(p => p.key);
     const open = prs.filter(p => !p.done).map(p => p.key);
@@ -148,14 +146,13 @@ function render() {
       el("span", {className: off ? "caret off" : "caret"}), sec.name,
       el("span", {className: "n", textContent: prs.length}));
     if (unread.length) h.append(el("span", {className: "n unread", textContent: unread.length + " new"}));
-    if (doneCount && !showDone) h.append(el("span", {className: "n muted", textContent: doneCount + " done"}));
     if (DATA.tracking && unread.length) h.append(btn("Mark all read", () => markRead(unread, true)));
     if (DATA.tracking && open.length) h.append(btn("Mark all done", () => markDone(open)));
     app.append(h);
     if (off) continue;
     app.append(prs.length
       ? el("div", {className: "list"}, ...prs.map(p => row(p, sec.grouped)))
-      : el("div", {className: "empty", textContent: doneCount ? "All done" : "Nothing here"}));
+      : el("div", {className: "empty", textContent: "Nothing here"}));
   }
 }
 
