@@ -22,14 +22,18 @@ h2{font-size:15px;margin:28px 0 8px;display:flex;gap:8px;align-items:center;curs
 .n{background:var(--soft);border-radius:10px;padding:0 8px;font-size:12px;font-weight:500}
 .n.unread{background:var(--link);color:#fff}
 .list{border:1px solid var(--line);border-radius:6px;overflow:hidden}
-.row{display:grid;grid-template-columns:150px minmax(0,1fr) 170px 300px 64px;gap:10px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--soft)}
-.row.status{grid-template-columns:150px 84px minmax(0,1fr) 300px 64px}   /* no author column: it's always me */
+.row{display:grid;grid-template-columns:150px minmax(0,1fr) 170px 300px 118px;gap:10px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--soft)}
+.row.status{grid-template-columns:150px 84px minmax(0,1fr) 300px 118px}   /* no author column: it's always me */
 .row:last-child{border-bottom:0}.row:hover{background:var(--hover)}
 .row.read{color:var(--muted)}.row.read a{color:var(--muted)}
 .row>*{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .lbl{font-family:ui-monospace,Menlo,monospace;font-size:12px}
 .row .author{color:var(--muted)}
 .row .act{text-align:right}
+.row .act button+button{margin-left:4px}
+.row.done{opacity:.6}
+.n.muted{background:none;color:var(--muted)}
+label.meta{display:flex;gap:4px;align-items:center;cursor:pointer}
 .row .reviewers{display:flex;flex-wrap:wrap;gap:4px;overflow:visible;white-space:normal}
 .empty{color:var(--muted);padding:10px}
 a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}
@@ -47,6 +51,7 @@ a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}
   <h1>PR Review Notifier</h1>
   <button id="refresh">Refresh</button>
   <span class="meta" id="status"></span>
+  <label class="meta"><input type="checkbox" id="showdone"> show done</label>
   <span class="tools"><button id="expand">Expand all</button><button id="collapse">Collapse all</button></span>
 </header>
 <div id="app">Loading…</div>
@@ -78,9 +83,14 @@ async function load() {
   render();
 }
 async function markRead(keys, read) {
-  await post(read ? "/read" : "/unread", keys);
+  await post(read ? "/read" : "/unread", keys);   // marking read also undoes done
   load();
 }
+async function markDone(keys) {
+  await post("/done", keys);
+  load();
+}
+function btn(label, onclick) { return el("button", {textContent: label, onclick}); }
 function setCollapsed(names, on) {
   names.forEach(n => on ? collapsed.add(n) : collapsed.delete(n));
   localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed]));
@@ -105,14 +115,18 @@ function row(pr, grouped) {
   const title = el("span", {}, el("span", {className: "dot"}), ...badges,
     el("a", {textContent: pr.title, href: safeUrl(pr.url), target: "_blank", title: pr.title,
              onclick: () => { if (pr.unread) markRead([pr.key], true); }}));
-  const act = el("span", {className: "act"},
-    el("button", {textContent: pr.unread ? "Read" : "Unread", onclick: () => markRead([pr.key], pr.unread)}));
+  const act = el("span", {className: "act"});
+  if (DATA.tracking) {   // read/done need read_tracking
+    if (pr.done) act.append(btn("Undo", () => markRead([pr.key], true)));
+    else act.append(btn(pr.unread ? "Read" : "Unread", () => markRead([pr.key], pr.unread)),
+                    btn("Done", () => markDone([pr.key])));
+  }
   const cells = [el("span", {className: "lbl", textContent: pr.label, title: pr.key})];
   if (grouped) cells.push(el("span", {}, chip(pr.status, STATUS[pr.status])));
   cells.push(title);
   if (!grouped) cells.push(el("span", {className: "author", textContent: pr.author}));
   cells.push(reviewerChips(pr), act);
-  const cls = (pr.unread ? "row" : "row read") + (grouped ? " status" : "");
+  const cls = (pr.unread ? "row" : "row read") + (pr.done ? " done" : "") + (grouped ? " status" : "");
   return el("div", {className: cls}, ...cells);
 }
 
@@ -123,21 +137,25 @@ function render() {
   if (DATA.error) app.append(el("div", {className: "banner", textContent: "Last poll failed: " + DATA.error}));
   const when = DATA.generated_at ? new Date(DATA.generated_at * 1000).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"}) : "?";
   $("status").textContent = `@${DATA.me} · updated ${when}`;
+  const showDone = $("showdone").checked;
   for (const sec of DATA.sections) {
     const off = collapsed.has(sec.name);
-    const unread = sec.prs.filter(p => p.unread).map(p => p.key);
+    const doneCount = sec.prs.filter(p => p.done).length;
+    const prs = showDone ? sec.prs : sec.prs.filter(p => !p.done);
+    const unread = prs.filter(p => p.unread && !p.done).map(p => p.key);
+    const open = prs.filter(p => !p.done).map(p => p.key);
     const h = el("h2", {onclick: e => { if (e.target.tagName !== "BUTTON") setCollapsed([sec.name], !off); }},
       el("span", {className: off ? "caret off" : "caret"}), sec.name,
-      el("span", {className: "n", textContent: sec.prs.length}));
-    if (unread.length) {
-      h.append(el("span", {className: "n unread", textContent: unread.length + " new"}),
-               el("button", {textContent: "Mark all read", onclick: () => markRead(unread, true)}));
-    }
+      el("span", {className: "n", textContent: prs.length}));
+    if (unread.length) h.append(el("span", {className: "n unread", textContent: unread.length + " new"}));
+    if (doneCount && !showDone) h.append(el("span", {className: "n muted", textContent: doneCount + " done"}));
+    if (DATA.tracking && unread.length) h.append(btn("Mark all read", () => markRead(unread, true)));
+    if (DATA.tracking && open.length) h.append(btn("Mark all done", () => markDone(open)));
     app.append(h);
     if (off) continue;
-    app.append(sec.prs.length
-      ? el("div", {className: "list"}, ...sec.prs.map(p => row(p, sec.grouped)))
-      : el("div", {className: "empty", textContent: "Nothing here"}));
+    app.append(prs.length
+      ? el("div", {className: "list"}, ...prs.map(p => row(p, sec.grouped)))
+      : el("div", {className: "empty", textContent: doneCount ? "All done" : "Nothing here"}));
   }
 }
 
@@ -152,6 +170,8 @@ $("refresh").onclick = async () => {
     load();
   }
 };
+$("showdone").checked = localStorage.getItem("prn-show-done") === "1";
+$("showdone").onchange = () => { localStorage.setItem("prn-show-done", $("showdone").checked ? "1" : "0"); render(); };
 $("expand").onclick = () => setCollapsed(DATA.sections.map(s => s.name), false);
 $("collapse").onclick = () => setCollapsed(DATA.sections.map(s => s.name), true);
 

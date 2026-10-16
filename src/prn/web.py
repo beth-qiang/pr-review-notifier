@@ -71,6 +71,7 @@ def payload(inbox: Optional[store.Inbox], seen: Optional[dict[str, dict]],
                 "ci": p.ci if p.author == me else "none",   # CI only matters on my own PRs
                 "reviewers": reviewers(p, inbox.me),
                 "unread": seen is None or store.is_unread(seen, p, s.name, inbox.me),
+                "done": seen is not None and store.is_done(seen, p, s.name, inbox.me),
             }
             for p in s.prs
         ]
@@ -90,6 +91,7 @@ def payload(inbox: Optional[store.Inbox], seen: Optional[dict[str, dict]],
         "next_poll_at": inbox.next_poll_at,
         "error": inbox.error,
         "badge_count": inbox.badge_count,
+        "tracking": seen is not None,   # read/done only exist when read_tracking is on
         "sections": sections,
     }
 
@@ -116,6 +118,14 @@ def mark_read(keys: list[str]) -> None:
     store.mark_read(_items_for(inbox, set(keys)), inbox.me, live_keys=live)
 
 
+def mark_done(keys: list[str]) -> None:
+    inbox = store.read_inbox()
+    if inbox is None:
+        return
+    live = {p.key for s in inbox.sections for p in s.prs}
+    store.mark_read(_items_for(inbox, set(keys)), inbox.me, live_keys=live, done=True)
+
+
 def mark_unread(keys: list[str]) -> None:
     store.mark_unread(keys)
 
@@ -133,7 +143,7 @@ def refresh() -> Optional[str]:
 def make_handler(token: str, port_getter: Callable[[], int],
                  do_refresh: Callable[[], Optional[str]] = refresh) -> type[BaseHTTPRequestHandler]:
     page = resources.files("prn").joinpath("assets/dashboard.html").read_text(encoding="utf-8")
-    actions = {"/read": mark_read, "/unread": mark_unread}
+    actions = {"/read": mark_read, "/unread": mark_unread, "/done": mark_done}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):  # keep the daemon log quiet

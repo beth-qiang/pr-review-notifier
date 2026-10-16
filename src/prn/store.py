@@ -7,7 +7,7 @@ import json
 import os
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -157,8 +157,8 @@ def read_seen() -> dict[str, dict]:
     return (data or {}).get("prs", {})
 
 
-def _seen_entry(pr: PR, section: str, me: str) -> dict:
-    return {**pr.activity(me), "section": section, "at": time.time()}
+def _seen_entry(pr: PR, section: str, me: str, done: bool = False) -> dict:
+    return {**pr.activity(me), "section": section, "at": time.time(), **({"done": True} if done else {})}
 
 
 def is_unread(seen: dict[str, dict], pr: PR, section: str, me: str) -> bool:
@@ -166,12 +166,25 @@ def is_unread(seen: dict[str, dict], pr: PR, section: str, me: str) -> bool:
     return entry is None or has_new_activity(entry, {**pr.activity(me), "section": section})
 
 
-def mark_read(items: list[tuple[PR, str]], me: str, live_keys: Optional[set[str]] = None) -> None:
-    """Record each (PR, section) as I see it now. Entries older than 30 days are dropped
-    unless the PR is still in the inbox (`live_keys`)."""
+def is_done(seen: dict[str, dict], pr: PR, section: str, me: str) -> bool:
+    """Marked done, and nothing new has happened since (new activity brings it back, like an unread PR)."""
+    entry = seen.get(pr.key)
+    return bool(entry and entry.get("done")) and not has_new_activity(entry, {**pr.activity(me), "section": section})
+
+
+def hide_done(inbox: Inbox, seen: dict[str, dict]) -> Inbox:
+    """A copy of `inbox` without the PRs marked done, so counts and badges leave them out too."""
+    return replace(inbox, sections=[
+        replace(s, prs=[p for p in s.prs if not is_done(seen, p, s.name, inbox.me)]) for s in inbox.sections])
+
+
+def mark_read(items: list[tuple[PR, str]], me: str, live_keys: Optional[set[str]] = None,
+              done: bool = False) -> None:
+    """Record each (PR, section) as I see it now (and as done, if `done`). Marking read clears done.
+    Entries older than 30 days are dropped unless the PR is still in the inbox (`live_keys`)."""
     seen = read_seen()
     for pr, section in items:
-        seen[pr.key] = _seen_entry(pr, section, me)
+        seen[pr.key] = _seen_entry(pr, section, me, done)
     cutoff = time.time() - SEEN_TTL_SECONDS
     live = live_keys or set()
     seen = {k: v for k, v in seen.items() if k in live or v.get("at", 0) >= cutoff}

@@ -181,3 +181,84 @@ def test_config_accepts_a_section_group():
 
     text = config_mod.example_config_text().replace("  - name: My Open PRs\n", "  - name: My Open PRs\n    group: My PRs\n")
     assert {s.name: s.group for s in config_mod.parse(text).sections}["My Open PRs"] == "My PRs"
+
+
+# ---------------------------------------------------------------- done
+
+SEC = "Teammates Need Review"
+
+
+def done_pr(**kw):
+    return parse_pr(node(number=700, **kw))
+
+
+def test_done_hides_until_something_new_happens():
+    before = done_pr(comments=1)
+    store.mark_read([(before, SEC)], ME, done=True)
+    assert store.is_done(store.read_seen(), before, SEC, ME)
+    assert not store.is_done(store.read_seen(), done_pr(comments=2), SEC, ME)   # new comment: back
+    assert not store.is_done(store.read_seen(), done_pr(comments=1, head="new-sha"), SEC, ME)
+    assert not store.is_done(store.read_seen(), before, "Another Section", ME)    # moved sections: back
+
+
+def test_read_without_done_is_not_done_and_marking_read_clears_done():
+    pr = done_pr()
+    store.mark_read([(pr, SEC)], ME)
+    assert not store.is_done(store.read_seen(), pr, SEC, ME)
+    store.mark_read([(pr, SEC)], ME, done=True)
+    store.mark_read([(pr, SEC)], ME)             # Undo
+    seen = store.read_seen()
+    assert not store.is_done(seen, pr, SEC, ME) and not store.is_unread(seen, pr, SEC, ME)
+
+
+def test_mark_unread_clears_done():
+    pr = done_pr()
+    store.mark_read([(pr, SEC)], ME, done=True)
+    store.mark_unread([pr.key])
+    assert not store.is_done(store.read_seen(), pr, SEC, ME)
+
+
+def test_hide_done_removes_prs_and_badge_counts(cfg):
+    prs = publish(cfg, node(number=1), node(number=2))
+    inbox = store.read_inbox()
+    sec = next(s for s in inbox.sections if s.prs)
+    assert inbox.badge_count == 2
+    store.mark_read([(prs[0], sec.name)], ME, done=True)
+    visible = store.hide_done(inbox, store.read_seen())
+    assert visible.badge_count == 1 and visible.total == 1
+    assert inbox.total == 2                      # the original is untouched
+
+
+def test_a_done_pr_still_in_the_inbox_is_never_pruned():
+    import json
+    import time
+    from prn import paths
+
+    old, other = done_pr(), parse_pr(node(number=701))
+    store.mark_read([(old, SEC)], ME, done=True)
+    data = json.loads(paths.seen_path().read_text())
+    data["prs"][old.key]["at"] = time.time() - 60 * 24 * 3600        # marked done 60 days ago
+    paths.seen_path().write_text(json.dumps(data))
+    store.mark_read([(other, SEC)], ME, live_keys={old.key, other.key})
+    assert store.is_done(store.read_seen(), old, SEC, ME)
+
+
+def test_done_endpoint_and_undo_through_the_server(dash, cfg):
+    prs = publish(cfg, node(number=1))
+
+    def row():
+        return next(p for s in data(dash)["sections"] for p in s["prs"])
+
+    assert not row()["done"] and data(dash)["tracking"] is True
+    httpx.post(dash.url + f"done?token={dash.token}", json=[prs[0].key])
+    assert row()["done"] and not row()["unread"]
+    httpx.post(dash.url + f"read?token={dash.token}", json=[prs[0].key])   # Undo
+    assert not row()["done"] and not row()["unread"]
+
+
+def test_nothing_is_done_when_read_tracking_is_off(cfg):
+    prs = publish(cfg, node(number=1))
+    store.mark_read([(prs[0], SEC)], ME, done=True)
+    out = web.payload(store.read_inbox(), None)
+    assert out["tracking"] is False
+    assert not any(p["done"] for s in out["sections"] for p in s["prs"])

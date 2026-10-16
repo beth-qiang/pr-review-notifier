@@ -185,7 +185,9 @@ if rumps is not None:
                 self.title = "…"
                 self.menu.add(rumps.MenuItem("Waiting for first poll…"))
             else:
-                count = inbox.badge_count
+                seen = store.read_seen() if settings.read_tracking else None
+                visible = store.hide_done(inbox, seen) if seen is not None else inbox   # done PRs leave the menu and badge
+                count = visible.badge_count
                 self.title = (" ⚠" if inbox.error else "") + (f" {count}" if count or not self.icon else "")
                 if inbox.error:
                     self.menu.add(rumps.MenuItem(f"⚠ {fmt.truncate(inbox.error, 70)}"))
@@ -193,8 +195,7 @@ if rumps is not None:
                 shown = 0
                 rows_shown = False
                 prev_rows = False
-                seen = store.read_seen() if settings.read_tracking else None
-                for sec in inbox.sections:
+                for sec in visible.sections:
                     if sec.menu == "hidden" or (not sec.prs and settings.hide_empty_sections):
                         continue
                     is_rows = sec.menu == "rows"
