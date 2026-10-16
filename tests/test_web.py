@@ -262,3 +262,32 @@ def test_nothing_is_done_when_read_tracking_is_off(cfg):
     out = web.payload(store.read_inbox(), None)
     assert out["tracking"] is False
     assert not any(p["done"] for s in out["sections"] for p in s["prs"])
+
+
+def test_week_start_is_monday_midnight_local():
+    from datetime import datetime
+
+    wed = datetime(2026, 10, 14, 15, 30).timestamp()          # a Wednesday afternoon
+    assert datetime.fromtimestamp(store.week_start(wed)) == datetime(2026, 10, 12, 0, 0)
+    sun = datetime(2026, 10, 18, 23, 59).timestamp()          # still the same week
+    assert datetime.fromtimestamp(store.week_start(sun)) == datetime(2026, 10, 12, 0, 0)
+    mon = datetime(2026, 10, 19, 0, 0).timestamp()            # the next week starts
+    assert datetime.fromtimestamp(store.week_start(mon)) == datetime(2026, 10, 19, 0, 0)
+
+
+def test_entries_from_earlier_weeks_are_cleared_unless_the_pr_is_still_in_the_inbox():
+    import json
+    import time
+    from prn import paths
+
+    last_week, this_week, live = done_pr(), parse_pr(node(number=701)), parse_pr(node(number=702))
+    for pr in (last_week, this_week, live):
+        store.mark_read([(pr, SEC)], ME, done=True)
+    data = json.loads(paths.seen_path().read_text())
+    start = store.week_start(time.time())
+    data["prs"][last_week.key]["at"] = start - 3600           # an hour before this week began
+    data["prs"][this_week.key]["at"] = start + 1              # this week
+    data["prs"][live.key]["at"] = start - 40 * 24 * 3600      # ancient, but still open and in the inbox
+    paths.seen_path().write_text(json.dumps(data))
+    store.mark_read([], ME, live_keys={live.key})             # any write triggers the prune
+    assert set(store.read_seen()) == {this_week.key, live.key}

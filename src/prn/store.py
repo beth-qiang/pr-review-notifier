@@ -8,6 +8,7 @@ import os
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -142,7 +143,12 @@ def write_snapshot(prs: dict[str, dict]) -> None:
 
 # ---------------------------------------------------------------- read state
 
-SEEN_TTL_SECONDS = 30 * 24 * 3600
+
+
+def week_start(now: float) -> float:
+    """Monday 00:00 local time of the week containing `now`, as an epoch."""
+    d = datetime.fromtimestamp(now)
+    return (d - timedelta(days=d.weekday())).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
 
 
 def seen_mtime() -> float:
@@ -181,11 +187,11 @@ def hide_done(inbox: Inbox, seen: dict[str, dict]) -> Inbox:
 def mark_read(items: list[tuple[PR, str]], me: str, live_keys: Optional[set[str]] = None,
               done: bool = False) -> None:
     """Record each (PR, section) as I see it now (and as done, if `done`). Marking read clears done.
-    Entries older than 30 days are dropped unless the PR is still in the inbox (`live_keys`)."""
+    Entries from before this week (Monday 00:00) are dropped unless the PR is still in the inbox (`live_keys`)."""
     seen = read_seen()
     for pr, section in items:
         seen[pr.key] = _seen_entry(pr, section, me, done)
-    cutoff = time.time() - SEEN_TTL_SECONDS
+    cutoff = week_start(time.time())
     live = live_keys or set()
     seen = {k: v for k, v in seen.items() if k in live or v.get("at", 0) >= cutoff}
     _atomic_write_json(paths.seen_path(), {"prs": seen})

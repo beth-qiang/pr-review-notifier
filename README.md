@@ -188,7 +188,7 @@ Once you've looked at a PR, it fades so new activity stands out. This works in b
 
 **Don't want it?** Set `read_tracking: false` under `settings`. Every row then stays at full brightness, opening a PR doesn't mark it read, and `m`/`M` and the "new" count go away. Both views pick up the change within a few seconds. Turning it back on keeps your earlier read state.
 
-Read state lives in `~/.local/state/prn/seen.json`. An entry is removed once its PR has left the inbox for 30 days. If the PR comes back after that, it shows as unread.
+Read state lives in `~/.local/state/prn/seen.json`. Entries are cleared at the end of the week: when Monday starts, any entry from an earlier week is removed if its PR is no longer in the inbox (merged, closed, or no longer matching a section). A PR still in the inbox keeps its read or done state however old it is. If a cleared PR comes back, it shows as unread.
 
 ### Commands
 
