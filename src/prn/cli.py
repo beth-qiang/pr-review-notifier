@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import webbrowser
 from typing import List, Optional
 
 import typer
@@ -14,6 +15,7 @@ from rich.table import Table
 
 from . import config as config_mod
 from . import fmt, launchd, logs, macapp, notify, paths, poller, store
+from . import web as web_mod
 from .github import AuthError, GitHubClient, GitHubError, find_binary, get_token
 
 app = typer.Typer(
@@ -146,6 +148,27 @@ def menubar():
         mb.run()
     except RuntimeError as exc:
         _fail(str(exc))
+
+
+@app.command()
+def web(
+    port: int = typer.Option(web_mod.DEFAULT_PORT, "--port", help="Port to listen on (localhost only)"),
+    no_open: bool = typer.Option(False, "--no-open", help="Don't open the browser"),
+):
+    """Serve the dashboard on localhost. It reads the same inbox the menu bar app writes."""
+    logs.setup(to_stderr=True)
+    try:
+        dash = web_mod.Dashboard(port=port)
+    except OSError as exc:
+        _fail(f"couldn't listen on port {port}: {exc}")
+        raise
+    console.print(f"Dashboard at [bold]{dash.url}[/bold] (Ctrl-C to stop)")
+    if not no_open:
+        webbrowser.open(dash.url)
+    try:
+        dash.serve_forever()
+    except KeyboardInterrupt:
+        pass
 
 
 @app.command()

@@ -13,7 +13,7 @@ from importlib import resources
 from typing import Optional
 
 from . import config as config_mod
-from . import fmt, menu_style, notify, paths, poller, store, watch
+from . import fmt, menu_style, notify, paths, poller, store, watch, web
 from .launchd import prn_executable
 from .macapp import APP_NAME
 
@@ -101,6 +101,7 @@ if rumps is not None:
             self._last_mtime: tuple[float, float] = (-1.0, -1.0)
             self._poller = PollThread()
             self._watcher = watch.ChangeWatcher()
+            self._dashboard = self._start_dashboard()
             self._render_timer = rumps.Timer(self._maybe_render, 3)
             self._render(store.read_inbox())
 
@@ -111,6 +112,19 @@ if rumps is not None:
                 NSApplication.sharedApplication().setActivationPolicy_(1)  # Accessory: no Dock icon
             except Exception:
                 pass
+
+        @staticmethod
+        def _start_dashboard() -> Optional[web.Dashboard]:
+            try:
+                dash = web.Dashboard()
+                dash.start()
+                return dash
+            except OSError as exc:  # port taken, e.g. by `prn web`: "Open dashboard" then opens that one
+                log.warning("dashboard not started on port %d: %s", web.DEFAULT_PORT, exc)
+                return None
+
+        def _open_dashboard(self, _sender=None) -> None:
+            webbrowser.open(self._dashboard.url if self._dashboard else f"http://127.0.0.1:{web.DEFAULT_PORT}/")
 
         def start(self) -> None:
             self._poller.start()
@@ -177,13 +191,21 @@ if rumps is not None:
                     self.menu.add(rumps.MenuItem(f"⚠ {fmt.truncate(inbox.error, 70)}"))
                     self.menu.add(rumps.separator)
                 shown = 0
+                rows_shown = False
+                prev_rows = False
                 seen = store.read_seen() if settings.read_tracking else None
                 for sec in inbox.sections:
-                    if not sec.prs and settings.hide_empty_sections:
+                    if sec.menu == "hidden" or (not sec.prs and settings.hide_empty_sections):
                         continue
-                    if shown:
+                    is_rows = sec.menu == "rows"
+                    if shown and (is_rows or prev_rows):   # consecutive count lines stay grouped
                         self.menu.add(rumps.separator)
                     shown += 1
+                    prev_rows = is_rows
+                    if not is_rows:
+                        self.menu.add(rumps.MenuItem(f"{sec.name} ({len(sec.prs)})", callback=self._open_dashboard))
+                        continue
+                    rows_shown = True
                     self.menu.add(rumps.MenuItem(f"{sec.name} ({len(sec.prs)})"))
                     for pr in sec.prs:
                         read = seen is not None and not store.is_unread(seen, pr, sec.name, inbox.me)
@@ -195,11 +217,12 @@ if rumps is not None:
                         menu_style.apply(item, segments)  # native colors; plain text if unavailable
                 if not shown:
                     self.menu.add(rumps.MenuItem("Inbox zero 🎉"))
-                else:
+                elif rows_shown:
                     self.menu.add(rumps.separator)
                     self.menu.add(rumps.MenuItem(menu_style.LEGEND))
 
             self.menu.add(rumps.separator)
+            self.menu.add(rumps.MenuItem("Open dashboard", callback=self._open_dashboard, key="d"))
             self.menu.add(rumps.MenuItem("Refresh now", callback=self._refresh, key="r"))
             self.menu.add(rumps.MenuItem("Open inbox (Terminal)", callback=lambda _: _open_terminal_with_prn()))
             self.menu.add(rumps.MenuItem("Edit config…", callback=lambda _: _edit_config()))

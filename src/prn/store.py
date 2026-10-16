@@ -39,6 +39,7 @@ class InboxSection:
     notify: bool
     badge: bool
     prs: list[PR] = field(default_factory=list)
+    menu: str = "rows"
 
 
 @dataclass
@@ -66,7 +67,7 @@ def write_inbox(results: list[SectionResult], me: str, next_poll_at: Optional[fl
         generated_at=time.time(),
         next_poll_at=next_poll_at,
         error=error,
-        sections=[InboxSection(r.name, r.notify, r.badge, r.prs) for r in results if r.display],
+        sections=[InboxSection(r.name, r.notify, r.badge, r.prs, r.menu) for r in results if r.display],
         strategy=strategy,
     )
     _atomic_write_json(paths.inbox_path(), {
@@ -77,7 +78,8 @@ def write_inbox(results: list[SectionResult], me: str, next_poll_at: Optional[fl
         "error": inbox.error,
         "badge_count": inbox.badge_count,
         "sections": [
-            {"name": s.name, "notify": s.notify, "badge": s.badge, "prs": [p.to_dict() for p in s.prs]}
+            {"name": s.name, "notify": s.notify, "badge": s.badge, "menu": s.menu,
+             "prs": [p.to_dict() for p in s.prs]}
             for s in inbox.sections
         ],
     })
@@ -112,7 +114,7 @@ def read_inbox() -> Optional[Inbox]:
         error=data.get("error"),
         sections=[
             InboxSection(s["name"], s.get("notify", True), s.get("badge", False),
-                         [PR.from_dict(p) for p in s.get("prs", [])])
+                         [PR.from_dict(p) for p in s.get("prs", [])], s.get("menu", "rows"))
             for s in data.get("sections", [])
         ],
         strategy=data.get("strategy", "conservative"),

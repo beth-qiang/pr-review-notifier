@@ -84,6 +84,8 @@ class Section(_Strict):
     notify: bool = True
     badge: bool = False
     display: bool = True     # false: still claims matching PRs, but is left out of every inbox view
+    menu: Literal["rows", "count", "hidden"] = "rows"   # menu bar dropdown: every PR, one "Name (N)" line, or nothing
+    group: Optional[str] = None   # web dashboard: sections with the same group are shown as one table
     filters: Filters = Field(default_factory=Filters)
 
 

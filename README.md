@@ -122,6 +122,7 @@ My Draft PRs (1)
 ───────────────────────────────
 ✓ ✗ ● CI   ◆ approved / changes requested
 ───────────────────────────────
+Open dashboard             ⌘D
 Refresh now                ⌘R
 Open inbox (Terminal)
 Edit config…
@@ -139,6 +140,20 @@ Quit PR Review Notifier    ⌘Q
 - **The status line** shows when the inbox was last updated and when the next poll is. With `poll_strategy: aggressive` it reads `Updated 10:42 AM · live, checked 6s ago` instead.
 
 Empty sections are hidden (`hide_empty_sections`). Sections with `display: false` are never shown.
+
+**Keep the dropdown short.** Set `menu: count` on a section to show one `Name (N)` line instead of every PR (clicking it opens the dashboard), or `menu: hidden` to leave it out of the dropdown. The default is `menu: rows`. This only affects the dropdown: badges, notifications, the terminal inbox and the dashboard still show everything.
+
+### The web dashboard
+
+**Open dashboard** in the menu bar (or `prn web`) opens `http://127.0.0.1:8787/`. It reads the same inbox the menu bar app writes, so it loads instantly; only **Refresh** polls GitHub.
+
+- Sections are collapsible, and the collapsed state is remembered.
+- Each row shows the repo and number, the title, the author, and a chip for every reviewer: green ✓ approved, red ✗ requested changes, outlined for a comment. Bots are dimmed, and a bot's approval is slate blue instead of green. Your own review shows as "you".
+- CI status is shown only on your own PRs.
+- **Read / Unread** and **Mark all read** use the same read state as the menu bar and terminal inbox. Clicking a title marks it read.
+- Sections that share a `group:` are shown as one table with a status column (approved, open, draft). For example, put `group: My PRs` on the three "My ..." sections.
+
+The server listens on localhost only and needs a per-run token, so other web pages can't read or change anything. If port 8787 is taken, the menu bar app still runs and "Open dashboard" opens whatever is on that port.
 
 ### The terminal inbox
 
@@ -195,6 +210,7 @@ Read state lives in `~/.local/state/prn/seen.json`. An entry is removed once its
 | `prn test-notification` | Send a test notification |
 | `prn daemon install` / `uninstall` / `restart` / `status` | Manage the login item that runs the menu bar app |
 | `prn daemon logs [-n N] [-f]` | Show (or follow) the log |
+| `prn web [--port N] [--no-open]` | Serve the [web dashboard](#the-web-dashboard) on localhost (the menu bar app already does this) |
 | `prn menubar` | Run the menu bar app in the foreground, which is useful for debugging |
 | `prn doctor` | Health check: gh, auth, terminal-notifier, config, app, login item, last poll |
 
@@ -253,6 +269,8 @@ sections:                          # checked top to bottom; first match wins
     badge: true                    # count toward the menu bar number (default false)
     display: true                  # false: still claims matching PRs, but hides the section everywhere
                                    #        and never sends "New in section" notifications
+    menu: rows                     # menu bar dropdown: rows (every PR) | count (one line) | hidden
+    group: My PRs                  # web dashboard: sections with the same group are one table (optional)
     filters:
       authors: [group:teammates]
       draft: false

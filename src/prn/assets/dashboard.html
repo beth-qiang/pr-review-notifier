@@ -1,0 +1,161 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR Review Notifier</title>
+<style>
+:root{--bg:#fff;--fg:#1f2328;--muted:#656d76;--line:#d0d7de;--soft:#eaeef2;--hover:#f6f8fa;--link:#0969da;
+  --green-bg:#dafbe1;--green-fg:#116329;--red-bg:#ffebe9;--red-fg:#a40e26;--amber-bg:#fff8c5;--amber-fg:#7d4e00;
+  --slate-bg:#e1e8f0;--slate-fg:#44607f}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#8d96a0;--line:#30363d;--soft:#21262d;--hover:#161b22;--link:#58a6ff;
+  --green-bg:#12261e;--green-fg:#56d364;--red-bg:#2d1214;--red-fg:#ff7b72;--amber-bg:#272115;--amber-fg:#e3b341;--slate-bg:#1d2733;--slate-fg:#8fa8c4}}
+body{font:14px/1.4 system-ui,sans-serif;max-width:1180px;margin:2em auto;padding:0 1em;color:var(--fg);background:var(--bg)}
+header{display:flex;gap:16px;align-items:center}
+h1{font-size:22px;margin:0}
+.meta{color:var(--muted);font-size:12px}
+.banner{margin:16px 0 0;padding:8px 12px;border:1px solid var(--red-fg);background:var(--red-bg);color:var(--red-fg);border-radius:6px}
+button{font:inherit;font-size:12px;cursor:pointer;border:1px solid var(--line);background:var(--hover);color:var(--fg);border-radius:6px;padding:2px 8px}
+button:hover{background:var(--soft)}button:disabled{opacity:.6;cursor:default}
+.tools{margin-left:auto;display:flex;gap:6px}
+h2{font-size:15px;margin:28px 0 8px;display:flex;gap:8px;align-items:center;cursor:pointer;user-select:none}
+.caret{width:7px;height:7px;border:solid var(--muted);border-width:0 2px 2px 0;transform:rotate(45deg);margin:-4px 6px 0 2px;transition:transform .12s}
+.caret.off{transform:rotate(-45deg);margin:0 6px 0 0}
+.n{background:var(--soft);border-radius:10px;padding:0 8px;font-size:12px;font-weight:500}
+.n.unread{background:var(--link);color:#fff}
+.list{border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.row{display:grid;grid-template-columns:150px minmax(0,1fr) 170px 300px 64px;gap:10px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--soft)}
+.row.status{grid-template-columns:150px 84px minmax(0,1fr) 300px 64px}   /* no author column: it's always me */
+.row:last-child{border-bottom:0}.row:hover{background:var(--hover)}
+.row.read{color:var(--muted)}.row.read a{color:var(--muted)}
+.row>*{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .lbl{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.row .author{color:var(--muted)}
+.row .act{text-align:right}
+.row .reviewers{display:flex;flex-wrap:wrap;gap:4px;overflow:visible;white-space:normal}
+.empty{color:var(--muted);padding:10px}
+a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}
+.chip{display:inline-block;font-size:12px;border-radius:4px;padding:1px 6px;background:var(--soft);color:var(--muted)}
+.chip.green{background:var(--green-bg);color:var(--green-fg)}
+.chip.red{background:var(--red-bg);color:var(--red-fg)}
+.chip.amber{background:var(--amber-bg);color:var(--amber-fg)}
+.chip.plain{background:none;border:1px solid var(--line)}
+.chip.bot{opacity:.6}
+.chip.bot.green{background:var(--slate-bg);color:var(--slate-fg)}   /* a bot's approval: slate, still dimmed */
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--link);margin-right:6px}
+.row.read .dot{visibility:hidden}
+</style>
+<header>
+  <h1>PR Review Notifier</h1>
+  <button id="refresh">Refresh</button>
+  <span class="meta" id="status"></span>
+  <span class="tools"><button id="expand">Expand all</button><button id="collapse">Collapse all</button></span>
+</header>
+<div id="app">Loading…</div>
+<script>
+const TOKEN = "__TOKEN__";
+const COLLAPSED_KEY = "prn-collapsed";
+const CI = {success: ["CI passing", "green"], failure: ["CI failing", "red"], pending: ["CI running", "amber"]};
+const STATUS = {approved: "green", open: "plain", draft: ""};
+const REVIEWER = {approved: ["✓ ", "green", "approved"], changes_requested: ["✗ ", "red", "requested changes"], commented: ["", "plain", "commented"]};
+let DATA = null;
+const collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "[]"));
+
+const $ = id => document.getElementById(id);
+function el(tag, props = {}, ...kids) {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...kids);
+  return e;
+}
+function chip(text, color) { return el("span", {className: "chip " + color, textContent: text}); }
+function safeUrl(u) { return /^https:\/\//.test(u) ? u : "#"; }
+
+async function post(path, body) {
+  const r = await fetch(path + "?token=" + TOKEN, {method: "POST", body: JSON.stringify(body || [])});
+  return r.json();
+}
+async function load() {
+  const r = await fetch("/data?token=" + TOKEN);
+  DATA = await r.json();
+  render();
+}
+async function markRead(keys, read) {
+  await post(read ? "/read" : "/unread", keys);
+  load();
+}
+function setCollapsed(names, on) {
+  names.forEach(n => on ? collapsed.add(n) : collapsed.delete(n));
+  localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed]));
+  render();
+}
+
+function reviewerChips(pr) {
+  return el("span", {className: "reviewers"}, ...pr.reviewers.map(r => {
+    const [glyph, color, what] = REVIEWER[r.state];
+    const c = chip(glyph + r.login, color);
+    c.title = what + (r.bot ? " (bot)" : "");
+    if (r.bot) c.classList.add("bot");
+    return c;
+  }));
+}
+
+function row(pr, grouped) {
+  const [ciText, ciColor] = CI[pr.ci] || ["", ""];
+  const badges = [];
+  if (pr.draft && !grouped) badges.push(chip("draft", ""), " ");   // grouped tables have a status column
+  if (ciText) badges.push(chip(ciText, ciColor), " ");
+  const title = el("span", {}, el("span", {className: "dot"}), ...badges,
+    el("a", {textContent: pr.title, href: safeUrl(pr.url), target: "_blank", title: pr.title,
+             onclick: () => { if (pr.unread) markRead([pr.key], true); }}));
+  const act = el("span", {className: "act"},
+    el("button", {textContent: pr.unread ? "Read" : "Unread", onclick: () => markRead([pr.key], pr.unread)}));
+  const cells = [el("span", {className: "lbl", textContent: pr.label, title: pr.key})];
+  if (grouped) cells.push(el("span", {}, chip(pr.status, STATUS[pr.status])));
+  cells.push(title);
+  if (!grouped) cells.push(el("span", {className: "author", textContent: pr.author}));
+  cells.push(reviewerChips(pr), act);
+  const cls = (pr.unread ? "row" : "row read") + (grouped ? " status" : "");
+  return el("div", {className: cls}, ...cells);
+}
+
+function render() {
+  const app = $("app");
+  app.replaceChildren();
+  if (!DATA || DATA.empty) { app.textContent = "No data yet. Click Refresh."; return; }
+  if (DATA.error) app.append(el("div", {className: "banner", textContent: "Last poll failed: " + DATA.error}));
+  const when = DATA.generated_at ? new Date(DATA.generated_at * 1000).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"}) : "?";
+  $("status").textContent = `@${DATA.me} · updated ${when}`;
+  for (const sec of DATA.sections) {
+    const off = collapsed.has(sec.name);
+    const unread = sec.prs.filter(p => p.unread).map(p => p.key);
+    const h = el("h2", {onclick: e => { if (e.target.tagName !== "BUTTON") setCollapsed([sec.name], !off); }},
+      el("span", {className: off ? "caret off" : "caret"}), sec.name,
+      el("span", {className: "n", textContent: sec.prs.length}));
+    if (unread.length) {
+      h.append(el("span", {className: "n unread", textContent: unread.length + " new"}),
+               el("button", {textContent: "Mark all read", onclick: () => markRead(unread, true)}));
+    }
+    app.append(h);
+    if (off) continue;
+    app.append(sec.prs.length
+      ? el("div", {className: "list"}, ...sec.prs.map(p => row(p, sec.grouped)))
+      : el("div", {className: "empty", textContent: "Nothing here"}));
+  }
+}
+
+$("refresh").onclick = async () => {
+  const b = $("refresh");
+  b.disabled = true; b.textContent = "Refreshing…";
+  try {
+    const r = await post("/refresh");
+    if (r.error) alert("Refresh failed: " + r.error);
+  } finally {
+    b.disabled = false; b.textContent = "Refresh";
+    load();
+  }
+};
+$("expand").onclick = () => setCollapsed(DATA.sections.map(s => s.name), false);
+$("collapse").onclick = () => setCollapsed(DATA.sections.map(s => s.name), true);
+
+load();
+setInterval(load, 20000);          // cheap: reads local files, so polls from the menu bar show up here
+window.addEventListener("focus", load);
+</script>

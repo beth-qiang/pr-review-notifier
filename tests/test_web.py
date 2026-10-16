@@ -1,0 +1,183 @@
+import httpx
+import pytest
+
+from prn import store, web
+from prn.engine import evaluate
+from prn.github import parse_pr
+
+from .conftest import ME, node, review, write_config
+
+
+def publish(cfg, *nodes):
+    prs = [parse_pr(n) for n in nodes]
+    store.write_inbox(evaluate(prs, cfg, ME), ME, next_poll_at=None)
+    return prs
+
+
+@pytest.fixture
+def dash():
+    write_config()
+    calls = []
+    d = web.Dashboard(port=0, do_refresh=lambda: calls.append(1))
+    d.start()
+    d.refreshes = calls
+    yield d
+    d.close()
+
+
+def get(d, path, **kw):
+    return httpx.get(d.url.rstrip("/") + path, **kw)
+
+
+def data(d):
+    return get(d, f"/data?token={d.token}").json()
+
+
+def test_payload_without_inbox():
+    assert web.payload(None, {})["empty"] is True
+
+
+def test_payload_rows_and_unread(cfg):
+    prs = publish(cfg, node(number=1, ci="FAILURE", decision="APPROVED"))
+    out = web.payload(store.read_inbox(), {})
+    sec = next(s for s in out["sections"] if s["prs"])
+    row = sec["prs"][0]
+    assert (row["key"], row["unread"]) == (prs[0].key, True)
+    assert row["ci"] == "none" and not row["mine"]   # CI is hidden on other people's PRs
+
+    store.mark_read([(prs[0], sec["name"])], ME)
+    row = next(s for s in web.payload(store.read_inbox(), store.read_seen())["sections"] if s["prs"])["prs"][0]
+    assert row["unread"] is False
+
+
+def test_read_tracking_off_means_everything_unread(cfg):
+    prs = publish(cfg, node(number=1))
+    store.mark_read([(prs[0], "Teammates Need Review")], ME)
+    out = web.payload(store.read_inbox(), None)
+    assert all(p["unread"] for s in out["sections"] for p in s["prs"])
+
+
+def test_requires_token_and_host(dash):
+    assert get(dash, "/data").status_code == 403
+    assert get(dash, "/data?token=nope").status_code == 403
+    assert get(dash, f"/data?token={dash.token}", headers={"Host": "evil.example"}).status_code == 403
+    assert get(dash, "/", headers={"Host": "evil.example"}).status_code == 403
+    assert httpx.post(dash.url + "read", content="[]").status_code == 403
+
+
+def test_page_embeds_token(dash):
+    r = get(dash, "/")
+    assert r.status_code == 200 and dash.token in r.text and "__TOKEN__" not in r.text
+
+
+def test_read_and_unread_round_trip(dash, cfg):
+    prs = publish(cfg, node(number=1))
+
+    def unread():
+        return next(p for s in data(dash)["sections"] for p in s["prs"])["unread"]
+
+    assert unread()
+    r = httpx.post(dash.url + f"read?token={dash.token}", json=[prs[0].key])
+    assert r.status_code == 200 and not unread()
+    httpx.post(dash.url + f"unread?token={dash.token}", json=[prs[0].key])
+    assert unread()
+
+
+def test_bad_body_is_rejected(dash):
+    r = httpx.post(dash.url + f"read?token={dash.token}", content="{not json")
+    assert r.status_code == 400
+    r = httpx.post(dash.url + f"read?token={dash.token}", content='{"a": 1}')
+    assert r.status_code == 400
+
+
+def test_refresh_calls_poll_and_reports_error(dash):
+    r = httpx.post(dash.url + f"refresh?token={dash.token}")
+    assert r.json() == {"error": None} and dash.refreshes == [1]
+
+
+def test_section_menu_mode_round_trips_through_the_inbox(cfg):
+    from prn import config as config_mod
+
+    text = config_mod.example_config_text().replace("your-org/repo-one", "acme/web").replace(
+        "your-org/repo-two", "acme/api").replace("teammate-one", "alice").replace("teammate-two", "bob")
+    text = text.replace("  - name: My Open PRs\n", "  - name: My Open PRs\n    menu: count\n")
+    c = config_mod.parse(text)
+    assert {s.name: s.menu for s in c.sections}["My Open PRs"] == "count"
+    assert {s.name: s.menu for s in c.sections}["Teammates Need Review"] == "rows"
+
+    store.write_inbox(evaluate([parse_pr(node(number=1))], c, ME), ME, next_poll_at=None)
+    assert {s.name: s.menu for s in store.read_inbox().sections}["My Open PRs"] == "count"
+
+
+def test_menu_mode_must_be_known():
+    from prn import config as config_mod
+
+    bad = config_mod.example_config_text().replace("  - name: My Open PRs\n", "  - name: My Open PRs\n    menu: nope\n")
+    with pytest.raises(config_mod.ConfigError):
+        config_mod.parse(bad)
+
+
+def test_inbox_written_before_menu_existed_reads_as_rows():
+    import json
+    from prn import paths
+
+    paths.state_dir().mkdir(parents=True, exist_ok=True)
+    paths.inbox_path().write_text(json.dumps(
+        {"me": ME, "sections": [{"name": "Old", "notify": True, "badge": True, "prs": []}]}))
+    assert store.read_inbox().sections[0].menu == "rows"
+
+
+def test_ci_is_kept_on_my_prs(cfg):
+    publish(cfg, node(number=1, author=ME, ci="FAILURE"))
+    row = next(p for s in web.payload(store.read_inbox(), {})["sections"] for p in s["prs"])
+    assert row["mine"] and row["ci"] == "failure"
+
+
+def test_reviewers_humans_first_bots_dimmed_author_and_me_handled():
+    pr = parse_pr(node(author="alice", reviews=[
+        review("coderabbitai", "COMMENTED", bot=True), review("coderabbitai", "APPROVED", bot=True),
+        review("carol", "CHANGES_REQUESTED"), review("dave", "COMMENTED"),
+        review(ME, "APPROVED"), review("alice", "COMMENTED")]))
+    got = web.reviewers(pr, ME)
+    assert [(r["login"], r["state"], r["bot"]) for r in got] == [
+        ("you", "approved", False), ("carol", "changes_requested", False), ("dave", "commented", False),
+        ("coderabbitai", "approved", True)]
+
+
+def test_dismissed_review_shows_as_commented():
+    pr = parse_pr(node(reviews=[review("bob", "APPROVED"), review("bob", "DISMISSED")],
+                       latest=[review("bob", "DISMISSED")]))
+    assert [(r["login"], r["state"]) for r in web.reviewers(pr, ME)] == [("bob", "commented")]
+
+
+def test_status_is_approved_then_draft_then_open():
+    assert web.status(parse_pr(node(decision="APPROVED", draft=True))) == "approved"
+    assert web.status(parse_pr(node(draft=True))) == "draft"
+    assert web.status(parse_pr(node())) == "open"
+
+
+def test_grouped_sections_become_one_table_with_a_status_per_row(cfg):
+    publish(cfg, node(number=1, author=ME, decision="APPROVED"), node(number=2, author=ME),
+            node(number=3, author=ME, draft=True), node(number=4, author="alice"))
+    groups = {"My Approved PRs": "My PRs", "My Open PRs": "My PRs", "My Draft PRs": "My PRs"}
+    out = web.payload(store.read_inbox(), {}, groups)
+    names = [s["name"] for s in out["sections"]]
+    assert names.count("My PRs") == 1 and "My Open PRs" not in names and "Teammates Need Review" in names
+    mine = next(s for s in out["sections"] if s["name"] == "My PRs")
+    assert mine["grouped"] is True
+    assert [(p["key"].split("#")[1], p["status"]) for p in mine["prs"]] == [("1", "approved"), ("2", "open"), ("3", "draft")]
+    assert not next(s for s in out["sections"] if s["name"] == "Teammates Need Review")["grouped"]
+
+
+def test_group_keeps_the_position_of_its_first_section(cfg):
+    publish(cfg, node(number=1, author=ME))
+    groups = {"My Open PRs": "My PRs", "My Draft PRs": "My PRs"}
+    names = [s["name"] for s in web.payload(store.read_inbox(), {}, groups)["sections"]]
+    assert names.index("My PRs") == names.index("My Approved PRs") + 1
+
+
+def test_config_accepts_a_section_group():
+    from prn import config as config_mod
+
+    text = config_mod.example_config_text().replace("  - name: My Open PRs\n", "  - name: My Open PRs\n    group: My PRs\n")
+    assert {s.name: s.group for s in config_mod.parse(text).sections}["My Open PRs"] == "My PRs"
