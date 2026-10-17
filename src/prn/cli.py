@@ -84,6 +84,16 @@ def refresh():
     _do_refresh()
 
 
+def _mentions() -> list:
+    """Unread @mentions from the last poll, or none if the feature is off."""
+    try:
+        if not config_mod.load().settings.mentions.enabled:
+            return []
+    except config_mod.ConfigError:
+        pass
+    return store.read_mentions() or []
+
+
 @app.command("list")
 def list_cmd(
     section: Optional[str] = typer.Option(None, "--section", "-s", help="Only this section (case-insensitive)"),
@@ -101,9 +111,12 @@ def list_cmd(
         if not secs:
             _fail(f"no section named '{section}'")
 
+    mentions = _mentions()
     if as_json:
         out = {
             "me": inbox.me,
+            "mentions": [{"repo": m.repo, "number": m.number, "title": m.title, "url": m.url,
+                          "reason": m.reason, "updated_at": m.updated_at} for m in mentions],
             "generated_at": inbox.generated_at,
             "badge_count": inbox.badge_count,
             "error": inbox.error,
@@ -120,6 +133,17 @@ def list_cmd(
         err.print(f"[yellow]⚠ last poll failed:[/yellow] {inbox.error}")
     console.print(f"[bold]@{inbox.me}[/bold] · updated {fmt.ago(inbox.generated_at) if inbox.generated_at else '?'}"
                   f" · {inbox.badge_count} need attention")
+    if mentions and not section:
+        t = Table(title=f"Mentions ({len(mentions)})", title_justify="left", title_style="bold",
+                  show_header=False, box=None, pad_edge=False, expand=False)
+        t.add_column(style="cyan", no_wrap=True)
+        t.add_column(overflow="ellipsis", max_width=70, no_wrap=True)
+        t.add_column(style="dim", no_wrap=True)
+        t.add_column(style="dim", no_wrap=True)
+        for m in mentions:
+            t.add_row(fmt.pr_label(m), m.title, "you" if m.reason == "mention" else "your team", fmt.ago(m.updated_at))
+        console.print()
+        console.print(t)
     for s in secs:
         if not s.prs and not show_empty and not section:
             continue

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import re
 
 import pytest
 
@@ -13,11 +14,13 @@ _ids = itertools.count(1)
 
 def test_config_text() -> str:
     """The committed example config with test repos/teammates (alice, bob) substituted in."""
-    return (config_mod.example_config_text()
+    text = (config_mod.example_config_text()
             .replace("your-org/repo-one", "acme/web")
             .replace("your-org/repo-two", "acme/api")
             .replace("teammate-one", "alice")
             .replace("teammate-two", "bob"))
+    # mentions are fetched from the notifications endpoint, so tests opt in explicitly
+    return re.sub(r"  mentions:.*?\n(?=  notifications:)", "  mentions: {enabled: false}\n", text, flags=re.S)
 
 
 test_config_text.__test__ = False  # not a pytest test

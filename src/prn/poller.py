@@ -17,7 +17,7 @@ from . import notify, store
 from .config import Config
 from .engine import SectionResult, evaluate
 from .github import (AuthError, Fingerprint, Fetched, GitHubClient, allowed_repos, build_prs, check_all,
-                     fetch_all, plan_queries)
+                     fetch_all, parse_mentions, plan_queries)
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +61,24 @@ def _publish(cfg: Config, me: str, prs, send_notifications: bool,
     return inbox, notifications, seeded
 
 
+def sync_mentions(client: GitHubClient, cfg: Config, send_notifications: bool = True) -> None:
+    """Fetch unread @mentions on PRs, store them, and notify about new or renewed ones. The first fetch is
+    silent. Never raises: a mentions problem must not stop PR polling. Callers hold the poll lock."""
+    ms = cfg.settings.mentions
+    if not ms.enabled:
+        return
+    try:
+        mentions = parse_mentions(client.notifications(), include_team=ms.team_mentions)
+        prev = store.read_mentions()
+        if prev is None or [(m.id, m.updated_at) for m in prev] != [(m.id, m.updated_at) for m in mentions]:
+            store.write_mentions(mentions)
+        new = events_mod.new_mentions(prev, mentions)
+        if new and send_notifications and cfg.settings.notifications.mention:
+            notify.deliver_mentions(new, cfg.settings.notifier)
+    except Exception as exc:
+        log.warning("mentions sync failed: %s", exc)
+
+
 def _next_poll_at(cfg: Config) -> float:
     s = cfg.settings
     secs = s.fast_poll_interval_seconds if s.poll_strategy == "aggressive" else s.poll_interval_seconds
@@ -83,6 +101,7 @@ def poll_once(
         try:
             me = _viewer(client)
             prs = build_prs(fetch_all(client, plan_queries(cfg, me)), cfg)
+            sync_mentions(client, cfg, send_notifications)
         except Exception as exc:
             store.write_inbox_error(str(exc))
             raise
@@ -113,6 +132,7 @@ class Poller:
         self._unfetchable: set[str] = set()
         self._next_full_at = 0.0
         self._warned_low_rate = False
+        self._next_mentions_at = 0.0
         self.last_check_at: Optional[float] = None    # last successful GitHub round trip of any kind
 
     @property
@@ -140,6 +160,7 @@ class Poller:
         except AuthError:
             self._client = None   # re-read the token next time, in case the user re-ran `gh auth login`
             raise
+        self._sync_mentions(cfg, force=force_full)
         self.last_check_at = self._clock()
 
         if aggressive and self._can_check(queries):
@@ -151,6 +172,18 @@ class Poller:
         return result, wait
 
     # ------------------------------------------------------------ internals
+
+    def _sync_mentions(self, cfg: Config, force: bool) -> None:
+        """Fetch mentions at most as often as GitHub asks (X-Poll-Interval, 60s), whatever the PR poll rate."""
+        now = self._clock()
+        if not force and now < self._next_mentions_at:
+            return
+        try:
+            with store.poll_lock(wait_seconds=5):
+                sync_mentions(self.client, cfg)
+        except store.LockBusy:
+            return
+        self._next_mentions_at = now + max(60, self.client.notifications_poll_interval)
 
     def _rate_low(self) -> bool:
         remaining = self.client.rate_remaining

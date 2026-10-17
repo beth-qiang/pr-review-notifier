@@ -71,6 +71,11 @@ def seen_path() -> Path:
     return state_dir() / "seen.json"
 
 
+def mentions_path() -> Path:
+    """Unread @mentions on pull requests, from GitHub's notifications feed."""
+    return state_dir() / "mentions.json"
+
+
 def lock_path() -> Path:
     return state_dir() / "poll.lock"
 

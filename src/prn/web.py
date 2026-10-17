@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import config as config_mod
 from . import fmt, poller, store
-from .models import PR
+from .models import PR, Mention
 
 log = logging.getLogger(__name__)
 
@@ -46,12 +46,34 @@ def status(pr: PR) -> str:
     return "draft" if pr.is_draft else "open"
 
 
+def mention_section(mentions: list[Mention], seen: Optional[dict[str, dict]]) -> dict:
+    return {
+        "name": "Mentions", "kind": "mentions", "badge": True, "grouped": False, "collapsed": False,
+        "prs": [
+            {
+                "key": store.mention_key(m.id),
+                "label": f"{m.short_repo}#{m.number}",
+                "repo": m.repo,
+                "title": m.title,
+                "url": m.url,
+                "reason": m.reason,
+                "updated_at": m.updated_at,
+                "unread": seen is None or store.is_mention_unread(seen, m),
+                "done": seen is not None and store.is_mention_done(seen, m),
+            }
+            for m in mentions
+        ],
+    }
+
+
 def payload(inbox: Optional[store.Inbox], seen: Optional[dict[str, dict]],
-            groups: Optional[dict[str, str]] = None, collapsed: Optional[set[str]] = None) -> dict:
+            groups: Optional[dict[str, str]] = None, collapsed: Optional[set[str]] = None,
+            mentions: Optional[list[Mention]] = None, mentions_position: int = 1) -> dict:
     """The JSON the page renders. `seen` is None when read tracking is off (everything counts as unread).
     `groups` maps a section name to a group name; sections sharing a group become one table, in the
     position of the first, and each of its rows shows a status. `collapsed` is the set of section names
-    that start collapsed; a group starts collapsed if its first section does."""
+    that start collapsed; a group starts collapsed if its first section does. `mentions` (None: feature off)
+    becomes a "Mentions" section at `mentions_position` (1 = first)."""
     if inbox is None:
         return {"empty": True, "sections": []}
     groups = groups or {}
@@ -88,6 +110,8 @@ def payload(inbox: Optional[store.Inbox], seen: Optional[dict[str, dict]],
             by_group[group] = {"name": group, "badge": s.badge, "grouped": True,
                                "collapsed": s.name in collapsed, "prs": rows}
             sections.append(by_group[group])
+    if mentions is not None:
+        sections.insert(min(mentions_position - 1, len(sections)), mention_section(mentions, seen))
     return {
         "empty": False,
         "me": inbox.me,
@@ -108,27 +132,38 @@ def current_payload() -> dict:
     seen = store.read_seen() if cfg is None or cfg.settings.read_tracking else None
     groups = {s.name: s.group for s in cfg.sections if s.group} if cfg else {}
     collapsed = {s.name for s in cfg.sections if s.collapsed} if cfg else set()
-    return payload(store.read_inbox(), seen, groups, collapsed)
+    ms = cfg.settings.mentions if cfg else config_mod.MentionSettings()
+    mentions = (store.read_mentions() or []) if ms.enabled else None
+    return payload(store.read_inbox(), seen, groups, collapsed, mentions, ms.position)
 
 
 def _items_for(inbox: store.Inbox, keys: set[str]) -> list[tuple]:
     return [(p, s.name) for s in inbox.sections for p in s.prs if p.key in keys]
 
 
-def mark_read(keys: list[str]) -> None:
+def _split_keys(keys: list[str]) -> tuple[set[str], list[str]]:
+    """Mention rows use `mention:<thread id>` keys; everything else is a PR key."""
+    prefix = store.mention_key("")
+    return ({k[len(prefix):] for k in keys if k.startswith(prefix)}, [k for k in keys if not k.startswith(prefix)])
+
+
+def _mark(keys: list[str], done: bool) -> None:
+    mention_ids, keys = _split_keys(keys)
+    if mention_ids:
+        store.mark_mentions([m for m in store.read_mentions() or [] if m.id in mention_ids], done=done)
     inbox = store.read_inbox()
-    if inbox is None:
+    if inbox is None or not keys:
         return
     live = {p.key for s in inbox.sections for p in s.prs}
-    store.mark_read(_items_for(inbox, set(keys)), inbox.me, live_keys=live)
+    store.mark_read(_items_for(inbox, set(keys)), inbox.me, live_keys=live, done=done)
+
+
+def mark_read(keys: list[str]) -> None:
+    _mark(keys, done=False)
 
 
 def mark_done(keys: list[str]) -> None:
-    inbox = store.read_inbox()
-    if inbox is None:
-        return
-    live = {p.key for s in inbox.sections for p in s.prs}
-    store.mark_read(_items_for(inbox, set(keys)), inbox.me, live_keys=live, done=True)
+    _mark(keys, done=True)
 
 
 def mark_unread(keys: list[str]) -> None:

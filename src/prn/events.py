@@ -7,7 +7,7 @@ from typing import Optional
 
 from .config import Config
 from .engine import SectionResult
-from .models import PR
+from .models import PR, Mention
 
 NEW_IN_SECTION = "new_in_section"
 RE_REVIEW = "re_review_requested"
@@ -119,6 +119,15 @@ def diff(prev: dict[str, dict], results: list[SectionResult], all_prs: list[PR],
             events.append(Event(CI_STATUS, pr, "CI passed" if cur["ci"] == "success" else "CI failed", sec))
 
     return events
+
+
+def new_mentions(prev: Optional[list[Mention]], now: list[Mention]) -> list[Mention]:
+    """Mentions that are new, or renewed (their thread changed again), since `prev`. `prev` is None on the
+    first run, which is silent so existing mentions don't produce a burst of notifications."""
+    if prev is None:
+        return []
+    old = {m.id: m.updated_at for m in prev}
+    return [m for m in now if m.id not in old or m.updated_at > old[m.id]]
 
 
 def to_notifications(events: list[Event]) -> list[Notification]:

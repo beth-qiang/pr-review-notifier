@@ -14,7 +14,7 @@ from typing import Iterator, Optional
 
 from . import paths
 from .engine import SectionResult
-from .models import PR, has_new_activity
+from .models import PR, Mention, has_new_activity
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
@@ -184,6 +184,57 @@ def hide_done(inbox: Inbox, seen: dict[str, dict]) -> Inbox:
         replace(s, prs=[p for p in s.prs if not is_done(seen, p, s.name, inbox.me)]) for s in inbox.sections])
 
 
+# ---------------------------------------------------------------- mentions
+
+
+def mention_key(mention_id: str) -> str:
+    return f"mention:{mention_id}"
+
+
+def read_mentions() -> Optional[list[Mention]]:
+    """None until mentions have been fetched once (the first fetch is silent)."""
+    data = _read_json(paths.mentions_path())
+    return None if data is None else [Mention.from_dict(m) for m in data.get("mentions", [])]
+
+
+def write_mentions(mentions: list[Mention]) -> None:
+    _atomic_write_json(paths.mentions_path(), {"fetched_at": time.time(), "mentions": [m.to_dict() for m in mentions]})
+
+
+def mentions_mtime() -> float:
+    try:
+        return paths.mentions_path().stat().st_mtime
+    except FileNotFoundError:
+        return 0.0
+
+
+def is_mention_unread(seen: dict[str, dict], mention: Mention) -> bool:
+    """A mention is unread until I look at it, and again whenever its thread changes (someone mentions me again)."""
+    entry = seen.get(mention_key(mention.id))
+    return entry is None or mention.updated_at > entry.get("updated_at", "")
+
+
+def is_mention_done(seen: dict[str, dict], mention: Mention) -> bool:
+    entry = seen.get(mention_key(mention.id))
+    return bool(entry and entry.get("done")) and not mention.updated_at > entry.get("updated_at", "")
+
+
+def mark_mentions(mentions: list[Mention], done: bool = False) -> None:
+    seen = read_seen()
+    for m in mentions:
+        seen[mention_key(m.id)] = {"updated_at": m.updated_at, "at": time.time(), **({"done": True} if done else {})}
+    _write_seen(seen)
+
+
+def _write_seen(seen: dict[str, dict], live_keys: Optional[set[str]] = None) -> None:
+    """Write seen.json, dropping entries from before this week unless their PR is still in the inbox
+    (`live_keys`) or their mention is still unread on GitHub."""
+    cutoff = week_start(time.time())
+    live = (live_keys or set()) | {mention_key(m.id) for m in read_mentions() or []}
+    seen = {k: v for k, v in seen.items() if k in live or v.get("at", 0) >= cutoff}
+    _atomic_write_json(paths.seen_path(), {"prs": seen})
+
+
 def mark_read(items: list[tuple[PR, str]], me: str, live_keys: Optional[set[str]] = None,
               done: bool = False) -> None:
     """Record each (PR, section) as I see it now (and as done, if `done`). Marking read clears done.
@@ -191,10 +242,7 @@ def mark_read(items: list[tuple[PR, str]], me: str, live_keys: Optional[set[str]
     seen = read_seen()
     for pr, section in items:
         seen[pr.key] = _seen_entry(pr, section, me, done)
-    cutoff = week_start(time.time())
-    live = live_keys or set()
-    seen = {k: v for k, v in seen.items() if k in live or v.get("at", 0) >= cutoff}
-    _atomic_write_json(paths.seen_path(), {"prs": seen})
+    _write_seen(seen, live_keys)
 
 
 def mark_unread(keys: list[str]) -> None:

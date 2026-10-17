@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -15,11 +16,15 @@ from typing import Callable, Iterable, Optional, TypeVar
 import httpx
 
 from .config import Config, Section
-from .models import PR, Review
+from .models import PR, Mention, Review
 
 log = logging.getLogger(__name__)
 
 API_URL = "https://api.github.com/graphql"
+NOTIFICATIONS_URL = "https://api.github.com/notifications"
+NOTIFICATION_PAGE_SIZE = 50
+NOTIFICATION_MAX_PAGES = 4   # 200 unread threads
+_PULL_URL = re.compile(r"/repos/[^/]+/[^/]+/pulls/(\d+)$")
 SEARCH_BASE = "is:pr is:open archived:false"
 MAX_QUERY_LEN = 256          # GitHub search query length limit
 PAGE_SIZE = 50
@@ -166,6 +171,9 @@ class GitHubClient:
         )
         self.rate_remaining: Optional[int] = None
         self.points_used = 0     # sum of GraphQL rateLimit.cost across this client's requests
+        self._notif_modified: Optional[str] = None     # Last-Modified of the notifications feed
+        self._notif_cache: list[dict] = []
+        self.notifications_poll_interval = 60          # seconds GitHub asks us to wait between polls
         self._lock = threading.Lock()
 
     def close(self) -> None:
@@ -200,6 +208,39 @@ class GitHubClient:
                     self.points_used += rl.get("cost") or 0
             return data
         raise GitHubError("GitHub request failed after retries")
+
+    def notifications(self) -> list[dict]:
+        """Unread notification threads, newest first. Sends If-Modified-Since, so an unchanged feed is a
+        304 that costs no rate limit and returns the previous result."""
+        first_headers = {"If-Modified-Since": self._notif_modified} if self._notif_modified else {}
+        threads: list[dict] = []
+        modified: Optional[str] = None
+        url: str = NOTIFICATIONS_URL
+        for page in range(NOTIFICATION_MAX_PAGES):
+            try:
+                resp = self._http.get(url, params={"per_page": NOTIFICATION_PAGE_SIZE} if page == 0 else None,
+                                      headers=first_headers if page == 0 else None)
+            except httpx.TransportError as exc:
+                raise GitHubError(f"network error talking to GitHub: {exc}") from exc
+            if resp.status_code == 304:
+                return self._notif_cache
+            if resp.status_code == 401:
+                raise AuthError("GitHub rejected the token (401). Run `gh auth login` again.")
+            if resp.status_code >= 400:
+                raise GitHubError(f"GitHub API error {resp.status_code}: {resp.text[:300]}")
+            if page == 0:
+                modified = resp.headers.get("Last-Modified")
+                try:
+                    self.notifications_poll_interval = int(resp.headers.get("X-Poll-Interval", 60))
+                except ValueError:
+                    pass
+            threads.extend(resp.json())
+            nxt = resp.links.get("next")
+            if not nxt:
+                break
+            url = nxt["url"]
+        self._notif_modified, self._notif_cache = modified, threads
+        return threads
 
     def viewer_login(self) -> str:
         return self.graphql(VIEWER_QUERY)["viewer"]["login"]
@@ -335,6 +376,25 @@ def parse_pr(node: dict, requested_from_me: bool = False) -> PR:
         requested_teams=teams,
         review_requested_from_me=requested_from_me,
     )
+
+
+def parse_mentions(threads: Iterable[dict], include_team: bool = True) -> list[Mention]:
+    """Unread @mention threads on pull requests, newest first. Issues and other subjects are ignored."""
+    reasons = ("mention", "team_mention") if include_team else ("mention",)
+    out = []
+    for t in threads:
+        if t.get("reason") not in reasons or not t.get("unread", True):
+            continue
+        subject = t.get("subject") or {}
+        found = _PULL_URL.search(subject.get("url") or "")
+        if subject.get("type") != "PullRequest" or not found:
+            continue
+        repo, number = t["repository"]["full_name"], int(found.group(1))
+        out.append(Mention(id=str(t["id"]), repo=repo, number=number, title=subject.get("title") or "",
+                           url=f"https://github.com/{repo}/pull/{number}", reason=t["reason"],
+                           updated_at=t.get("updated_at") or ""))
+    out.sort(key=lambda m: m.updated_at, reverse=True)
+    return out
 
 
 # ---------------------------------------------------------------- query planning

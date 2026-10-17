@@ -90,9 +90,17 @@ class Section(_Strict):
     filters: Filters = Field(default_factory=Filters)
 
 
+class MentionSettings(_Strict):
+    """Unread @mentions on pull requests, from GitHub's notifications feed (any repo you're subscribed to)."""
+    enabled: bool = True
+    team_mentions: bool = True   # also count @org/team mentions of a team you're on
+    position: int = Field(default=1, ge=1)   # where the dashboard section goes: 1 = first
+
+
 class NotificationToggles(_Strict):
     new_in_section: bool = True
     re_review_requested: bool = True
+    mention: bool = True              # someone @mentions you (or your team) on a PR
     my_pr_status: bool = True
     ci_status: bool = True
 
@@ -112,6 +120,7 @@ class Settings(_Strict):
     ignore_bot_reviews: bool = False   # don't count bot reviews for has_reviews_from_others
     # Reviewers whose reviews never count toward `approvals` or `has_reviews_from_others`
     ignored_reviewers: list[str] = Field(default_factory=list)
+    mentions: MentionSettings = Field(default_factory=MentionSettings)
     notifications: NotificationToggles = Field(default_factory=NotificationToggles)
 
 

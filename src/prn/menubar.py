@@ -25,6 +25,13 @@ except ImportError:  # non-macOS
     rumps = None
 
 
+def visible_mentions(settings, seen: Optional[dict]) -> list:
+    """Unread-on-GitHub mentions I haven't marked done (all of them when read tracking is off)."""
+    if not settings.mentions.enabled:
+        return []
+    return [m for m in store.read_mentions() or [] if seen is None or not store.is_mention_done(seen, m)]
+
+
 def _icon_path() -> Optional[str]:
     try:
         return str(resources.files("prn").joinpath("assets/menubar_icon.png"))
@@ -98,7 +105,7 @@ if rumps is not None:
             icon = _icon_path()
             super().__init__(APP_NAME, title=None if icon else "PR", icon=icon, template=True, quit_button=None)
             self._hide_dock_icon()
-            self._last_mtime: tuple[float, float] = (-1.0, -1.0)
+            self._last_mtime: tuple[float, float, float] = (-1.0, -1.0, -1.0)
             self._poller = PollThread()
             self._watcher = watch.ChangeWatcher()
             self._dashboard = self._start_dashboard()
@@ -162,7 +169,7 @@ if rumps is not None:
 
         def _maybe_render(self, _timer=None) -> None:
             self._check_changes()
-            mtime = (store.inbox_mtime(), store.seen_mtime())
+            mtime = (store.inbox_mtime(), store.seen_mtime(), store.mentions_mtime())
             if mtime != self._last_mtime:
                 self._last_mtime = mtime
                 self._render(store.read_inbox())
@@ -187,7 +194,8 @@ if rumps is not None:
             else:
                 seen = store.read_seen() if settings.read_tracking else None
                 visible = store.hide_done(inbox, seen) if seen is not None else inbox   # done PRs leave the menu and badge
-                count = visible.badge_count
+                mentions = visible_mentions(settings, seen)
+                count = visible.badge_count + len(mentions)
                 self.title = (" ⚠" if inbox.error else "") + (f" {count}" if count or not self.icon else "")
                 if inbox.error:
                     self.menu.add(rumps.MenuItem(f"⚠ {fmt.truncate(inbox.error, 70)}"))
@@ -195,6 +203,16 @@ if rumps is not None:
                 shown = 0
                 rows_shown = False
                 prev_rows = False
+                if mentions:   # rare and urgent, so they go first
+                    self.menu.add(rumps.MenuItem(f"Mentions ({len(mentions)})"))
+                    for m in mentions:
+                        who = "you" if m.reason == "mention" else "your team"
+                        item = rumps.MenuItem(
+                            f"   {m.short_repo}#{m.number}  {fmt.truncate(m.title, settings.max_title_length)}  · {who}",
+                            callback=self._open_mention)
+                        item._prn_mention = m  # type: ignore[attr-defined]
+                        self.menu.add(item)
+                    shown, prev_rows = 1, True
                 for sec in visible.sections:
                     if sec.menu == "hidden" or (not sec.prs and settings.hide_empty_sections):
                         continue
@@ -259,6 +277,17 @@ if rumps is not None:
                     store.mark_read([seen], inbox.me, live_keys={p.key for s in inbox.sections for p in s.prs})
                 except Exception:
                     log.exception("couldn't mark %s read", seen[0].key)
+
+        def _open_mention(self, sender) -> None:
+            m = getattr(sender, "_prn_mention", None)
+            if m is None:
+                return
+            webbrowser.open(m.url)
+            if self._settings().read_tracking:
+                try:
+                    store.mark_mentions([m])
+                except Exception:
+                    log.exception("couldn't mark mention %s read", m.id)
 
         def _refresh(self, _sender) -> None:
             self._status_item.title = "Refreshing…"

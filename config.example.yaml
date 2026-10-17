@@ -17,9 +17,14 @@ settings:
   read_tracking: true             # fade PRs you've opened until there's new activity (see README "Read and unread")
   ignore_bot_reviews: false       # if true, bot reviews (e.g. Copilot) don't count as "reviews from others"
   ignored_reviewers: []           # logins whose reviews never count toward approvals / has_reviews_from_others
+  mentions:                       # unread @mentions on PRs, from GitHub notifications (any repo you're subscribed to)
+    enabled: true
+    team_mentions: true           # also count @org/team mentions of teams you're on
+    position: 1                   # where the web dashboard puts the Mentions section (1 = first)
   notifications:
     new_in_section: true          # a PR enters a section that has `notify: true`
     re_review_requested: true     # someone re-requests your review after you've reviewed
+    mention: true                 # someone @mentions you (or your team) on a PR
     my_pr_status: true            # your PR: review decision changes, new review, or new comment
     ci_status: true               # your PR: CI moves to success or failure
 

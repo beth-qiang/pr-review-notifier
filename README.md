@@ -156,6 +156,18 @@ Empty sections are hidden (`hide_empty_sections`). Sections with `display: false
 
 The server listens on localhost only and needs a per-run token, so other web pages can't read or change anything. If port 8787 is taken, the menu bar app still runs and "Open dashboard" opens whatever is on that port.
 
+### Mentions
+
+Unread @mentions on pull requests come from GitHub's notifications feed, so they cover **every repo you're subscribed to**, not just `defaults.repos`. Issues are ignored.
+
+- **Where they show:** a **Mentions** section on the dashboard (at `mentions.position`), a block at the top of the menu bar dropdown that counts toward the badge, and `prn list` / `prn list --json`.
+- **What a row has:** the repo and PR number, the title, whether it was you or your team, and how long ago. The notifications feed has no author, CI or reviewer data, so rows have none.
+- **GitHub decides what's unread.** Opening the PR on GitHub marks the thread read there, and the mention disappears from prn within a poll.
+- **Read and Done** work like they do for PRs, and are local to prn. A mention you marked done comes back if someone mentions you again.
+- **Cost:** one request per poll (at most once a minute, as GitHub asks), sent with `If-Modified-Since`, so an unchanged feed is a 304 and costs no rate limit.
+- **The first fetch is silent.** After that, a new mention sends a notification.
+- **Turning it off:** `mentions.enabled: false` removes it entirely. `mentions.team_mentions: false` keeps only personal mentions. `notifications.mention: false` keeps the section but sends no notification.
+
 ### The terminal inbox
 
 Run `prn` (or `pr-review-notifier`). Sections and PRs are on the left, with PRs you've already read muted. The selected PR's details are on the right: reviews, requested reviewers, approvals, CI, labels, and your own review state. The view updates by itself whenever the menu bar app polls.
@@ -252,9 +264,14 @@ settings:
   read_tracking: true              # fade PRs you've opened until there's new activity; false turns it off
   ignore_bot_reviews: false        # true: bot reviews don't count for has_reviews / has_reviews_from_others
   ignored_reviewers: [coderabbitai]  # these reviewers never count toward approvals or "has reviews"
+  mentions:                        # unread @mentions on PRs (see "Mentions")
+    enabled: true
+    team_mentions: true            # false: only count @you, not @your-team
+    position: 1                    # where the web dashboard puts the Mentions section (1 = first)
   notifications:                   # turn each notification type on or off
     new_in_section: true
     re_review_requested: true
+    mention: true
     my_pr_status: true
     ci_status: true
 
@@ -387,6 +404,7 @@ Notifications come from **PR Review Notifier**, with its own icon. Clicking one 
 |---|---|
 | New in section | A PR enters a section that has `notify: true`, including when it moves between sections. Silent when the move was caused by your own review, or when the section has `display: false` |
 | Re-review requested | You'd already reviewed, and you've been requested again |
+| Mention | Someone @mentions you (or a team you're on) on a pull request, or mentions you again on one you'd already seen. See [Mentions](#mentions) |
 | My PR status | Your PR's review decision changes, or someone else leaves a review or comment. Your own replies don't count |
 | CI | Checks on your PR finish as passed or failed |
 

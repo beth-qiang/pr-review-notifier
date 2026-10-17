@@ -15,6 +15,7 @@ import sys
 from typing import Optional
 
 from .events import Notification
+from .models import Mention
 from .github import find_binary
 from .macapp import APP_NAME, helper_binary
 
@@ -65,6 +66,20 @@ def send(title: str, subtitle: str, message: str, url: Optional[str] = None, gro
 def send_test(notifier: str = "terminal-notifier") -> bool:
     return send("Notifications are working", "You're all set",
                 "You'll get an alert here when a PR needs you.", group="prn-test", notifier=notifier)
+
+
+def deliver_mentions(mentions: list[Mention], notifier: str) -> int:
+    if not mentions:
+        return 0
+    if len(mentions) > MAX_INDIVIDUAL:
+        send(title=f"{len(mentions)} new mentions", subtitle="Open the menu bar inbox for details",
+             message="; ".join(f"{m.short_repo}#{m.number}" for m in mentions[:8]) + ("…" if len(mentions) > 8 else ""),
+             group="prn-mentions", notifier=notifier)
+        return 1
+    for m in mentions:
+        send("You were mentioned" if m.reason == "mention" else "Your team was mentioned",
+             f"{m.short_repo}#{m.number}", m.title, url=m.url, group=f"mention:{m.id}", notifier=notifier)
+    return len(mentions)
 
 
 def deliver(notifications: list[Notification], notifier: str) -> int:

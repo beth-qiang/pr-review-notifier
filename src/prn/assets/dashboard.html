@@ -24,11 +24,12 @@ h2{font-size:15px;margin:28px 0 8px;display:flex;gap:8px;align-items:center;curs
 .list{border:1px solid var(--line);border-radius:6px;overflow:hidden}
 .row{display:grid;grid-template-columns:150px minmax(0,1fr) 170px 300px 118px;gap:10px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--soft)}
 .row.status{grid-template-columns:150px 84px minmax(0,1fr) 300px 118px}   /* no author column: it's always me */
+.row.mention{grid-template-columns:150px minmax(0,1fr) 80px 118px}
 .row:last-child{border-bottom:0}.row:hover{background:var(--hover)}
 .row.read{color:var(--muted)}.row.read a{color:var(--muted)}
 .row>*{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .lbl{font-family:ui-monospace,Menlo,monospace;font-size:12px}
-.row .author{color:var(--muted)}
+.row .author,.row .age{color:var(--muted)}
 .row .act{text-align:right}
 .row .act button+button{margin-left:4px}
 .row.done{opacity:.6}
@@ -72,6 +73,11 @@ function el(tag, props = {}, ...kids) {
   return e;
 }
 function chip(text, color) { return el("span", {className: "chip " + color, textContent: text}); }
+function ago(iso) {
+  const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+  for (const [u, n] of [["d", 86400], ["h", 3600], ["m", 60]]) if (s >= n) return Math.floor(s / n) + u;
+  return "now";
+}
 function safeUrl(u) { return /^https:\/\//.test(u) ? u : "#"; }
 
 async function post(path, body) {
@@ -108,6 +114,28 @@ function reviewerChips(pr) {
   }));
 }
 
+function actions(pr) {
+  const act = el("span", {className: "act"});
+  if (DATA.tracking) {   // read/done need read_tracking
+    if (pr.done) act.append(btn("Undo", () => markRead([pr.key], true)));
+    else act.append(btn(pr.unread ? "Read" : "Unread", () => markRead([pr.key], pr.unread)),
+                    btn("Done", () => markDone([pr.key])));
+  }
+  return act;
+}
+
+function mentionRow(m) {
+  const title = el("span", {}, el("span", {className: "dot"}),
+    chip(m.reason === "mention" ? "mentioned you" : "mentioned your team", "plain"), " ",
+    el("a", {textContent: m.title, href: safeUrl(m.url), target: "_blank", title: m.title,
+             onclick: () => { if (m.unread) markRead([m.key], true); }}));
+  const cls = (m.unread ? "row mention" : "row mention read") + (m.done ? " done" : "");
+  return el("div", {className: cls},
+    el("span", {className: "lbl", textContent: m.label, title: m.repo}), title,
+    el("span", {className: "age", textContent: ago(m.updated_at), title: "when you were last mentioned"}),
+    actions(m));
+}
+
 function row(pr, grouped) {
   const [ciText, ciColor] = CI[pr.ci] || ["", ""];
   const badges = [];
@@ -116,12 +144,7 @@ function row(pr, grouped) {
   const title = el("span", {}, el("span", {className: "dot"}), ...badges,
     el("a", {textContent: pr.title, href: safeUrl(pr.url), target: "_blank", title: pr.title,
              onclick: () => { if (pr.unread) markRead([pr.key], true); }}));
-  const act = el("span", {className: "act"});
-  if (DATA.tracking) {   // read/done need read_tracking
-    if (pr.done) act.append(btn("Undo", () => markRead([pr.key], true)));
-    else act.append(btn(pr.unread ? "Read" : "Unread", () => markRead([pr.key], pr.unread)),
-                    btn("Done", () => markDone([pr.key])));
-  }
+  const act = actions(pr);
   const cells = [el("span", {className: "lbl", textContent: pr.label, title: pr.key})];
   if (grouped) cells.push(el("span", {}, chip(pr.status, STATUS[pr.status])));
   cells.push(title);
@@ -153,7 +176,7 @@ function render() {
     app.append(h);
     if (off) continue;
     app.append(prs.length
-      ? el("div", {className: "list"}, ...prs.map(p => row(p, sec.grouped)))
+      ? el("div", {className: "list"}, ...prs.map(p => sec.kind === "mentions" ? mentionRow(p) : row(p, sec.grouped)))
       : el("div", {className: "empty", textContent: "Nothing here"}));
   }
 }

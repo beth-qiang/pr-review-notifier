@@ -16,6 +16,33 @@ class Review:
     commit: Optional[str] = None   # oid of the commit the review was submitted against
 
 
+@dataclass
+class Mention:
+    """An unread GitHub notification thread where I was @mentioned (or my team was) on a pull request."""
+    id: str              # notification thread id
+    repo: str            # owner/name
+    number: int
+    title: str
+    url: str
+    reason: str          # mention | team_mention
+    updated_at: str      # when the thread last changed; a newer value means a new mention
+
+    @property
+    def key(self) -> str:
+        return f"{self.repo}#{self.number}"
+
+    @property
+    def short_repo(self) -> str:
+        return self.repo.split("/", 1)[-1]
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Mention":
+        return cls(**d)
+
+
 def has_new_activity(seen: dict, now: dict) -> bool:
     """True if `now` shows something new since `seen`. Changes caused by me (a request
     disappearing after I review, CI going back to pending) don't count."""
