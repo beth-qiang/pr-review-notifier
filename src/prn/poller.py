@@ -98,14 +98,15 @@ def poll_once(
         own_client = client is None
         client = client or GitHubClient()
         points_before = client.points_used
+        client.merge_fields = cfg.needs_merge_state()
         try:
             me = _viewer(client)
             prs = build_prs(fetch_all(client, plan_queries(cfg, me)), cfg)
-            sync_mentions(client, cfg, send_notifications)
         except Exception as exc:
             store.write_inbox_error(str(exc))
             raise
         finally:
+            sync_mentions(client, cfg, send_notifications)   # never raises, and doesn't depend on the PR poll
             points = client.points_used - points_before
             if own_client:
                 client.close()
@@ -150,6 +151,7 @@ class Poller:
         aggressive = s.poll_strategy == "aggressive"
         started = self._clock()
         try:
+            self.client.merge_fields = cfg.needs_merge_state()
             me = _viewer(self.client)
             queries = plan_queries(cfg, me)
             if aggressive and not force_full and self._clock() < self._next_full_at and self._can_check(queries):
@@ -160,7 +162,8 @@ class Poller:
         except AuthError:
             self._client = None   # re-read the token next time, in case the user re-ran `gh auth login`
             raise
-        self._sync_mentions(cfg, force=force_full)
+        finally:
+            self._sync_mentions(cfg, force=force_full)   # a failed PR poll must not stop mentions
         self.last_check_at = self._clock()
 
         if aggressive and self._can_check(queries):
@@ -182,6 +185,9 @@ class Poller:
             with store.poll_lock(wait_seconds=5):
                 sync_mentions(self.client, cfg)
         except store.LockBusy:
+            return
+        except Exception as exc:   # e.g. no usable token right after an AuthError
+            log.warning("mentions sync skipped: %s", exc)
             return
         self._next_mentions_at = now + max(60, self.client.notifications_poll_interval)
 

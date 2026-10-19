@@ -27,7 +27,10 @@ NOTIFICATION_MAX_PAGES = 4   # 200 unread threads
 _PULL_URL = re.compile(r"/repos/[^/]+/[^/]+/pulls/(\d+)$")
 SEARCH_BASE = "is:pr is:open archived:false"
 MAX_QUERY_LEN = 256          # GitHub search query length limit
-PAGE_SIZE = 50
+PAGE_SIZE = 50               # PRs per search page, the most we ask for
+MIN_PAGE_SIZE = 5            # GitHub times a request out after ~10s and answers 502/504; we shrink pages to fit
+MAX_RESULTS = 1000           # GitHub's search ceiling
+GROW_AFTER = 30              # successful searches at a reduced page size before trying a bigger one
 MAX_PAGES = 20               # 1000 results: GitHub's search ceiling
 CHECK_PAGE_SIZE = 100        # change checks fetch one page per search; more than this falls back to a full poll
 NODES_BATCH = 25             # PRs per refetch request
@@ -43,6 +46,19 @@ class GitHubError(Exception):
 
 class AuthError(GitHubError):
     pass
+
+
+class GatewayError(GitHubError):
+    """GitHub answered 502/503/504: it gave up on the request, usually because it was too heavy."""
+
+
+def _error_text(resp: httpx.Response) -> str:
+    """The response body for an error message, with HTML error pages reduced to their title."""
+    text = resp.text or ""
+    if "<html" in text.lower():
+        found = re.search(r"<title>(.*?)</title>", text, re.I | re.S)
+        return found.group(1).strip() if found else "an HTML error page"
+    return text[:300]
 
 
 def find_binary(name: str) -> Optional[str]:
@@ -104,9 +120,7 @@ fragment PRFields on PullRequest {
 }
 """
 
-SEARCH_QUERY = (
-    PR_FIELDS
-    + """
+_SEARCH_BODY = """
 query($q: String!, $first: Int!, $after: String) {
   rateLimit { remaining resetAt cost }
   search(query: $q, type: ISSUE, first: $first, after: $after) {
@@ -116,17 +130,29 @@ query($q: String!, $first: Int!, $after: String) {
   }
 }
 """
-)
 
-NODES_QUERY = (
-    PR_FIELDS
-    + """
+_NODES_BODY = """
 query($ids: [ID!]!) {
   rateLimit { remaining resetAt cost }
   nodes(ids: $ids) { ...PRFields }
 }
 """
-)
+
+# GitHub computes mergeable and mergeStateStatus per PR on demand, which roughly doubles the time a
+# page takes. Only the `conflicts` and `ready_to_merge` filters need them.
+MERGE_FIELDS = " mergeable mergeStateStatus"
+
+
+def search_query(merge: bool = True) -> str:
+    return (PR_FIELDS if merge else PR_FIELDS.replace(MERGE_FIELDS, "")) + _SEARCH_BODY
+
+
+def nodes_query(merge: bool = True) -> str:
+    return (PR_FIELDS if merge else PR_FIELDS.replace(MERGE_FIELDS, "")) + _NODES_BODY
+
+
+SEARCH_QUERY = search_query()
+NODES_QUERY = nodes_query()
 
 # Only fields GitHub can answer quickly. reviewDecision and mergeable are computed on demand and
 # make the check several times slower; reading CI through headRef avoids a connection, so it stays at 1 point.
@@ -171,6 +197,9 @@ class GitHubClient:
         )
         self.rate_remaining: Optional[int] = None
         self.points_used = 0     # sum of GraphQL rateLimit.cost across this client's requests
+        self.merge_fields = True       # ask for mergeable / mergeStateStatus; the poller turns this off when unused
+        self.page_size = PAGE_SIZE     # current search page size; shrinks when GitHub times a request out
+        self._searches_ok = 0          # successful searches since the page size last changed
         self._notif_modified: Optional[str] = None     # Last-Modified of the notifications feed
         self._notif_cache: list[dict] = []
         self.notifications_poll_interval = 60          # seconds GitHub asks us to wait between polls
@@ -179,23 +208,29 @@ class GitHubClient:
     def close(self) -> None:
         self._http.close()
 
-    def graphql(self, query: str, variables: Optional[dict] = None) -> dict:
+    def graphql(self, query: str, variables: Optional[dict] = None, attempts: int = 3) -> dict:
+        """POST a query. A 502/503/504 is retried up to `attempts` times, then raised as GatewayError; callers
+        that can make the request cheaper pass attempts=1 and retry smaller instead of repeating a heavy query."""
         payload = {"query": query, "variables": variables or {}}
-        for attempt in range(3):
+        for attempt in range(attempts):
+            last = attempt == attempts - 1
             try:
                 resp = self._http.post(API_URL, json=payload)
             except httpx.TransportError as exc:
-                if attempt == 2:
+                if last:
                     raise GitHubError(f"network error talking to GitHub: {exc}") from exc
                 time.sleep(2 ** attempt)
                 continue
             if resp.status_code == 401:
                 raise AuthError("GitHub rejected the token (401). Run `gh auth login` again.")
-            if resp.status_code in (502, 503, 504) and attempt < 2:
-                time.sleep(2 ** attempt)
-                continue
+            if resp.status_code in (502, 503, 504):
+                if not last:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise GatewayError(f"GitHub is slow or overloaded ({resp.status_code} {_error_text(resp)}); "
+                                   "will retry next poll")
             if resp.status_code >= 400:
-                raise GitHubError(f"GitHub API error {resp.status_code}: {resp.text[:300]}")
+                raise GitHubError(f"GitHub API error {resp.status_code}: {_error_text(resp)}")
             body = resp.json()
             if body.get("errors"):
                 msgs = "; ".join(e.get("message", str(e)) for e in body["errors"])
@@ -227,7 +262,7 @@ class GitHubClient:
             if resp.status_code == 401:
                 raise AuthError("GitHub rejected the token (401). Run `gh auth login` again.")
             if resp.status_code >= 400:
-                raise GitHubError(f"GitHub API error {resp.status_code}: {resp.text[:300]}")
+                raise GitHubError(f"GitHub API error {resp.status_code}: {_error_text(resp)}")
             if page == 0:
                 modified = resp.headers.get("Last-Modified")
                 try:
@@ -278,15 +313,39 @@ class GitHubClient:
         return counts.most_common(limit)
 
     def search_prs(self, q: str) -> list[dict]:
+        """All PRs matching `q`. GitHub gives up on a page that takes about 10s (502/504), and a page's cost grows
+        with its PRs, so on a gateway error the page size is halved and the same page retried. The reduced size
+        is remembered, and tried upward again after GROW_AFTER clean searches."""
+        query = search_query(self.merge_fields)
         nodes: list[dict] = []
         after = None
-        for _ in range(MAX_PAGES):
-            data = self.graphql(SEARCH_QUERY, {"q": q, "first": PAGE_SIZE, "after": after})
+        shrunk = False
+        while len(nodes) < MAX_RESULTS:
+            size = self.page_size
+            try:
+                data = self.graphql(query, {"q": q, "first": size, "after": after},
+                                    attempts=1 if size > MIN_PAGE_SIZE else 3)
+            except GatewayError:
+                if size <= MIN_PAGE_SIZE:
+                    raise
+                with self._lock:
+                    self.page_size = max(MIN_PAGE_SIZE, size // 2)
+                    self._searches_ok = 0
+                log.warning("GitHub timed out on a page of %d PRs; trying %d", size, self.page_size)
+                shrunk = True
+                continue
             search = data["search"]
             nodes.extend(n for n in search["nodes"] if n)
             if not search["pageInfo"]["hasNextPage"]:
                 break
             after = search["pageInfo"]["endCursor"]
+        if not shrunk:
+            with self._lock:
+                self._searches_ok += 1
+                if self.page_size < PAGE_SIZE and self._searches_ok >= GROW_AFTER:
+                    self.page_size = min(PAGE_SIZE, self.page_size * 2)
+                    self._searches_ok = 0
+                    log.info("GitHub has been fast for a while; page size back up to %d", self.page_size)
         return nodes
 
     def check_searches(self, queries: list[str]) -> Optional[list[list[dict]]]:
@@ -306,8 +365,19 @@ class GitHubClient:
     def nodes_by_id(self, ids: list[str]) -> list[dict]:
         """Full PR nodes for `ids`, fetched in parallel batches. PRs that no longer exist are dropped."""
         batches = [ids[i:i + NODES_BATCH] for i in range(0, len(ids), NODES_BATCH)]
-        results = _parallel(lambda b: self.graphql(NODES_QUERY, {"ids": b})["nodes"], batches)
+        results = _parallel(self._nodes_batch, batches)
         return [n for batch in results for n in batch if n]
+
+    def _nodes_batch(self, ids: list[str]) -> list[Optional[dict]]:
+        """One nodes(ids:) request; on a gateway error, split the batch in half and try each half."""
+        try:
+            return self.graphql(nodes_query(self.merge_fields), {"ids": ids},
+                                attempts=1 if len(ids) > 1 else 3)["nodes"]
+        except GatewayError:
+            if len(ids) <= 1:
+                raise
+            mid = len(ids) // 2
+            return self._nodes_batch(ids[:mid]) + self._nodes_batch(ids[mid:])
 
 
 # ---------------------------------------------------------------- parsing

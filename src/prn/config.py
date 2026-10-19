@@ -155,6 +155,11 @@ class Config(_Strict):
                     raise ValueError(f"section '{s.name}' references unknown group '{who}'")
         return self
 
+    def needs_merge_state(self) -> bool:
+        """True if a section filters on `conflicts` or `ready_to_merge`, the only users of mergeable /
+        mergeStateStatus. Without one, the (slow) fields aren't requested."""
+        return any(s.filters.conflicts is not None or s.filters.ready_to_merge is not None for s in self.sections)
+
     def ignored_reviewer_logins(self) -> frozenset[str]:
         """Lowercase logins; a trailing '[bot]' is dropped because GraphQL reports app logins without it."""
         return frozenset(u.lower().removesuffix("[bot]").lstrip("@") for u in self.settings.ignored_reviewers)
