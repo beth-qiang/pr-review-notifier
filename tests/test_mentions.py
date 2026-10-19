@@ -27,11 +27,15 @@ def mention(id="1", updated="2026-10-16T12:00:00Z", reason="mention", number=5):
                    url=f"https://github.com/acme/web/pull/{number}", reason=reason, updated_at=updated)
 
 
-def config_text(notify_mention=True, **mentions):
+def config_text(notify_mention=True, notify_team_mention=True, **mentions):
     """The test config with the mentions settings replaced (the default test config has them off)."""
     text = re.sub(r"  mentions:.*?\n(?=  notifications:)", f"  mentions: {json.dumps(mentions or {'enabled': True})}\n",
                   test_config_text(), flags=re.S)
-    return text if notify_mention else text.replace("    mention: true", "    mention: false")
+    if not notify_mention:
+        text = text.replace("    mention: true", "    mention: false")
+    if not notify_team_mention:
+        text = text.replace("    team_mention: true", "    team_mention: false")
+    return text
 
 
 def cfg_with(**mentions):
@@ -314,3 +318,57 @@ def test_menu_bar_hides_done_mentions_and_everything_when_off():
     assert [m.id for m in menubar.visible_mentions(on, store.read_seen())] == ["1"]
     assert [m.id for m in menubar.visible_mentions(on, None)] == ["1", "2"]     # read tracking off: nothing is done
     assert menubar.visible_mentions(off, store.read_seen()) == []
+
+
+# ---------------------------------------------------------------- silent team mentions
+
+
+def silent_team_cfg():
+    return config_mod.parse(config_text(notify_team_mention=False, enabled=True))
+
+
+def test_team_mentions_stay_listed_but_do_not_notify_when_team_mention_is_off(sent):
+    cfg, client = silent_team_cfg(), FakeClient()
+    poller.sync_mentions(client, cfg)                                 # first fetch, silent
+    client.threads = [thread("1", number=5), thread("2", reason="team_mention", number=8)]
+    poller.sync_mentions(client, cfg)
+    assert sorted(m.id for m in store.read_mentions()) == ["1", "2"]
+    assert len(sent) == 1 and sent[0][0][0] == "You were mentioned"   # only the personal one pops up
+
+
+def test_only_team_mentions_means_no_notification_at_all(sent):
+    cfg, client = silent_team_cfg(), FakeClient()
+    poller.sync_mentions(client, cfg)
+    client.threads = [thread("2", reason="team_mention", number=8)]
+    poller.sync_mentions(client, cfg)
+    assert sent == [] and [m.id for m in store.read_mentions()] == ["2"]
+
+
+def test_silenced_team_mentions_do_not_trigger_the_burst_summary(sent):
+    cfg, client = silent_team_cfg(), FakeClient()
+    poller.sync_mentions(client, cfg)
+    client.threads = [thread("p", number=1)] + [thread(f"t{i}", reason="team_mention", number=10 + i) for i in range(6)]
+    poller.sync_mentions(client, cfg)
+    assert len(sent) == 1 and sent[0][0][0] == "You were mentioned"   # one real notification, not a "7 new mentions" summary
+    assert len(store.read_mentions()) == 7
+
+
+def test_team_mentions_notify_by_default_and_the_master_switch_still_wins(sent):
+    cfg, client = cfg_with(enabled=True), FakeClient()
+    poller.sync_mentions(client, cfg)
+    client.threads = [thread("2", reason="team_mention", number=8)]
+    poller.sync_mentions(client, cfg)
+    assert len(sent) == 1 and sent[0][0][0] == "Your team was mentioned"
+
+    sent.clear()
+    off = config_mod.parse(config_text(notify_mention=False, notify_team_mention=True, enabled=True))
+    client.threads = [thread("3", number=9), thread("4", reason="team_mention", number=10)]
+    poller.sync_mentions(client, off)                                 # mention: false silences everything
+    assert sent == []
+
+
+def test_a_silent_team_mention_is_still_unread_and_can_be_marked_done():
+    m = mention("9", reason="team_mention")
+    assert store.is_mention_unread(store.read_seen(), m)
+    store.mark_mentions([m], done=True)
+    assert store.is_mention_done(store.read_seen(), m)

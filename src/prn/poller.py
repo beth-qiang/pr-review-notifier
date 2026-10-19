@@ -73,7 +73,10 @@ def sync_mentions(client: GitHubClient, cfg: Config, send_notifications: bool = 
         if prev is None or [(m.id, m.updated_at) for m in prev] != [(m.id, m.updated_at) for m in mentions]:
             store.write_mentions(mentions)
         new = events_mod.new_mentions(prev, mentions)
-        if new and send_notifications and cfg.settings.notifications.mention:
+        toggles = cfg.settings.notifications
+        if not toggles.team_mention:   # team mentions stay in the list, they just don't pop up
+            new = [m for m in new if m.reason != "team_mention"]
+        if new and send_notifications and toggles.mention:
             notify.deliver_mentions(new, cfg.settings.notifier)
     except Exception as exc:
         log.warning("mentions sync failed: %s", exc)

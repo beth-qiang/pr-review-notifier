@@ -25,6 +25,7 @@ settings:
     new_in_section: true          # a PR enters a section that has `notify: true`
     re_review_requested: true     # someone re-requests your review after you've reviewed
     mention: true                 # someone @mentions you (or your team) on a PR
+    team_mention: true            # ...including @org/team mentions; false keeps them listed but silent
     my_pr_status: true            # your PR: review decision changes, new review, or new comment
     ci_status: true               # your PR: CI moves to success or failure
 

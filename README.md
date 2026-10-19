@@ -166,7 +166,7 @@ Unread @mentions on pull requests come from GitHub's notifications feed, so they
 - **Read and Done** work like they do for PRs, and are local to prn. A mention you marked done comes back if someone mentions you again.
 - **Cost:** one request per poll (at most once a minute, as GitHub asks), sent with `If-Modified-Since`, so an unchanged feed is a 304 and costs no rate limit.
 - **The first fetch is silent.** After that, a new mention sends a notification.
-- **Turning it off:** `mentions.enabled: false` removes it entirely. `mentions.team_mentions: false` keeps only personal mentions. `notifications.mention: false` keeps the section but sends no notification.
+- **Turning it off:** `mentions.enabled: false` removes it entirely. `mentions.team_mentions: false` keeps only personal mentions. `notifications.mention: false` keeps the section but sends no notification. `notifications.team_mention: false` keeps team mentions in the list, the menu bar and the badge, but sends no notification for them (personal mentions still do).
 
 ### The terminal inbox
 
@@ -272,6 +272,7 @@ settings:
     new_in_section: true
     re_review_requested: true
     mention: true
+    team_mention: true             # false: team mentions are still listed, but don't send a notification
     my_pr_status: true
     ci_status: true
 

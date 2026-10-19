@@ -101,6 +101,7 @@ class NotificationToggles(_Strict):
     new_in_section: bool = True
     re_review_requested: bool = True
     mention: bool = True              # someone @mentions you (or your team) on a PR
+    team_mention: bool = True         # ...including a team you're on; false keeps team mentions listed but silent
     my_pr_status: bool = True
     ci_status: bool = True
 
