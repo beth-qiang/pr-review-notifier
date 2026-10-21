@@ -3,26 +3,51 @@
 A local GitHub PR inbox for macOS. The command is `prn`, short for **PR Review Notifier**; `pr-review-notifier` works too.
 
 - **Menu bar app:** an inbox icon with a badge count. Its dropdown lists your PRs grouped into sections, and clicking one opens it on GitHub.
-- **Desktop notifications:** you get one when a PR needs you, when your review is re-requested, or when your own PR is approved, reviewed, or finishes CI.
+- **Web dashboard:** a local page with every section, a chip for each reviewer, and Read / Done buttons. It opens from the menu bar and loads instantly.
+- **Desktop notifications:** you get one when a PR needs you, when your review is re-requested, when you or your team are @mentioned, or when your own PR is approved, reviewed, or finishes CI.
 - **Interactive terminal inbox:** run `prn` to browse, filter, and open PRs from the keyboard.
 - **Configurable sections:** each section is a named set of filters (repos, authors, review state, CI, and more) in a YAML file you can edit by hand.
 
 It's modeled on Graphite's inbox, and everything runs locally on your Mac.
 
+![The web dashboard](docs/dashboard.png)
+
+*The web dashboard, shown with made-up repos and people. Mentions, a merged "My PRs" table, reviewer chips, and a collapsed Dependency Bumps section are all visible here.*
+
+> **This is a fork** of [sepiette/pr-review-notifier](https://github.com/sepiette/pr-review-notifier). [This fork](#this-fork) lists what it adds, and what upstream has that it doesn't yet.
+
 ## Contents
 
+- [This fork](#this-fork)
 - [Requirements](#requirements)
 - [Install](#install)
 - [Upgrading](#upgrading)
 - [Uninstall](#uninstall)
 - [Using it](#using-it)
-- [Read and unread](#read-and-unread)
+- [Read, unread and done](#read-unread-and-done)
 - [The starter sections](#the-starter-sections)
 - [Config reference](#config-reference)
 - [Notifications](#notifications)
 - [How it works](#how-it-works)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
+
+## This fork
+
+This repo is a fork of [sepiette/pr-review-notifier](https://github.com/sepiette/pr-review-notifier) ("upstream"). It branches from upstream at `0e6c537` (PR #8) and adds the following. Everything else works as described in the rest of this README.
+
+| Addition | Where it's described |
+|---|---|
+| A local **web dashboard**: collapsible sections, a chip for each reviewer, Read / Done buttons, and CI shown only on your own PRs | [The web dashboard](#the-web-dashboard) |
+| A **Done** state that hides a PR, from the dashboard, the menu bar and the badge, until something new happens on it | [Read, unread and done](#read-unread-and-done) |
+| Section options **`menu`** (a shorter dropdown), **`group`** (one dashboard table with a status column) and **`collapsed`** | [Config reference](#config-reference) |
+| **Mentions:** unread @mentions of you or your team on any PR you're subscribed to, in the dashboard, the menu bar and `prn list`, with notifications. Team mentions can be silenced separately | [Mentions](#mentions) |
+| **A weekly cleanup** of old read and done state, instead of a 30-day expiry | [Read, unread and done](#read-unread-and-done) |
+| **Resilience to GitHub timeouts:** adaptive page sizes, merge state only fetched when a section uses it, readable 502 errors, and mentions that keep working while a PR poll fails | [How it works](#how-it-works), [Troubleshooting](#troubleshooting) |
+
+**Not in this fork yet:** upstream has since added a *Replies to Me* section with optional notifications, and shows a PR's base branch in the terminal inbox (upstream commits `6648eaf`, `1962dfc` and `e362654`, up to PR #9). Merging upstream today conflicts in `src/prn/events.py`, `src/prn/paths.py` and `src/prn/store.py`.
+
+**Known issue:** when the menu bar app restarts itself after a code change, macOS drops its menu bar icon. Run `prn daemon restart` after updating. See [Upgrading](#upgrading).
 
 ## Requirements
 
@@ -35,7 +60,7 @@ It's modeled on Graphite's inbox, and everything runs locally on your Mac.
 ## Install
 
 ```bash
-git clone https://github.com/sepiette/pr-review-notifier.git
+git clone https://github.com/beth-qiang/pr-review-notifier.git
 cd pr-review-notifier
 ./setup.sh
 ```
@@ -80,7 +105,9 @@ Before it overwrites anything, it backs up the old file to `config.yaml.bak-<tim
 git pull
 ```
 
-prn is installed in editable mode, so pulling is usually all you need. The menu bar app notices the code change, checks that the new code imports, and restarts itself within a few seconds. If the new code fails to import, it keeps running the previous version and sends you a notification.
+prn is installed in editable mode, so pulling is usually all you need. The menu bar app notices a change to the Python code, checks that the new code imports, and restarts itself within a few seconds. If the new code fails to import, it keeps running the previous version and sends you a notification.
+
+**After pulling, run `prn daemon restart`.** The self-restart replaces the process in place, and macOS drops the menu bar icon when that happens: the app keeps polling and serving the dashboard, but the icon disappears. The app also doesn't watch the dashboard's HTML, so a page change isn't picked up until a restart. `prn daemon restart` starts a fresh process and fixes both.
 
 **Re-run `./setup.sh` and choose keep when:**
 
@@ -106,12 +133,15 @@ It never removes `gh`, `uv`, or Homebrew.
 
 ### The menu bar
 
-The icon shows a number: the count of PRs in sections that have `badge: true`. The default config counts the four review sections. When the last poll failed, a ⚠ appears next to it.
+The icon shows a number: the count of PRs in sections that have `badge: true`, plus any unread mentions. The default config counts the four review sections. PRs you've marked done aren't counted. When the last poll failed, a ⚠ appears next to it.
 
 The dropdown contains:
 
 ```
 PR Review Notifier
+───────────────────────────────
+Mentions (1)
+   app-workflow#456  Preserve patient sex…   · you
 ───────────────────────────────
 Teammates Need Review (2)
    ✓   app-workflow#123  Add order export…   · teammate-one
@@ -134,7 +164,8 @@ Quit PR Review Notifier    ⌘Q
 - **CI status:** green ✓ passed, red ✗ failed, orange ● running. A blank means no checks.
 - **Review status:** green ◆ approved, red ◆ changes requested.
 - **Drafts:** shown dimmed and labelled "(draft)".
-- **Read PRs:** muted until there's new activity. See [Read and unread](#read-and-unread).
+- **Mentions:** a block at the top, shown only when there are unread mentions. Clicking one opens the PR. See [Mentions](#mentions).
+- **Read PRs:** muted until there's new activity. See [Read, unread and done](#read-unread-and-done). PRs marked **done** leave the dropdown.
 - **Click a PR** to open it on GitHub and mark it read.
 - **Refresh now** runs a full poll immediately. **Open inbox (Terminal)** opens the interactive inbox in Terminal. **Edit config…** opens `config.yaml` in your default text editor.
 - **The status line** shows when the inbox was last updated and when the next poll is. With `poll_strategy: aggressive` it reads `Updated 10:42 AM · live, checked 6s ago` instead.
@@ -151,6 +182,9 @@ Empty sections are hidden (`hide_empty_sections`). Sections with `display: false
 - Each row shows the repo and number, the title, the author, and a chip for every reviewer: green ✓ approved, red ✗ requested changes, outlined for a comment. Bots are dimmed, and a bot's approval is slate blue instead of green. Your own review shows as "you".
 - CI status is shown only on your own PRs.
 - **Read / Unread** and **Mark all read** use the same read state as the menu bar and terminal inbox. Clicking a title marks it read.
+- **Done** and **Mark all done** hide a PR until something new happens on it. Tick **show done** in the header to see the hidden ones, dimmed, with an **Undo** button. The menu bar drops done PRs too. See [Read, unread and done](#read-unread-and-done).
+- Read and Done buttons are hidden when `read_tracking` is `false`.
+- A **Mentions** section sits at `mentions.position` (first by default). See [Mentions](#mentions).
 - A section with `collapsed: true` starts collapsed. Once you expand or collapse a section yourself, the dashboard remembers your choice instead.
 - Sections that share a `group:` are shown as one table with a status column (approved, open, draft). For example, put `group: My PRs` on the three "My ..." sections.
 
@@ -183,9 +217,9 @@ Run `prn` (or `pr-review-notifier`). Sections and PRs are on the left, with PRs 
 | `/` | Filter by title, repo, number, author, or label (`Esc` clears it) |
 | `q` | Quit |
 
-### Read and unread
+### Read, unread and done
 
-Once you've looked at a PR, it fades so new activity stands out. This works in both the TUI and the menu bar dropdown.
+Once you've looked at a PR, it fades so new activity stands out. This works in the terminal inbox, the menu bar dropdown and the web dashboard.
 
 - **A PR becomes read** when you open it from the TUI (`Enter` or `o`) or click it in the menu bar. In the TUI, `m` toggles the selected PR between read and unread, and `M` marks everything shown as read. The status bar counts the PRs that are new.
 - **A read PR is muted.** Its row keeps the CI and review colours, but everything is drawn fainter.
@@ -201,14 +235,18 @@ Once you've looked at a PR, it fades so new activity stands out. This works in b
 
 **Don't want it?** Set `read_tracking: false` under `settings`. Every row then stays at full brightness, opening a PR doesn't mark it read, and `m`/`M` and the "new" count go away. Both views pick up the change within a few seconds. Turning it back on keeps your earlier read state.
 
-Read state lives in `~/.local/state/prn/seen.json`. Entries are cleared at the end of the week: when Monday starts, any entry from an earlier week is removed if its PR is no longer in the inbox (merged, closed, or no longer matching a section). A PR still in the inbox keeps its read or done state however old it is. If a cleared PR comes back, it shows as unread.
+**Done** goes one step further than read. **Done** (or **Mark all done**) in the dashboard hides a PR, and the menu bar leaves it out of the dropdown and the badge. It comes back, unread, under the same rules as above: new activity from someone else, a direct re-request, or a move to another section. **Undo** (in the dashboard, with **show done** ticked) turns it back into a normal read PR. Done is local to prn, and nothing changes on GitHub. The terminal inbox doesn't know about done, so it still shows those PRs.
+
+Mentions use the same buttons, and a mention comes back when its thread gets a new mention.
+
+Read and done state lives in `~/.local/state/prn/seen.json`. Entries are cleared at the end of the week: when Monday starts, any entry from an earlier week is removed if its PR is no longer in the inbox (merged, closed, or no longer matching a section). A PR still in the inbox keeps its read or done state however old it is, and a mention keeps its state while it's still unread on GitHub. If a cleared PR comes back, it shows as unread.
 
 ### Commands
 
 | Command | What it does |
 |---|---|
 | `prn` | Interactive inbox |
-| `prn list [-s NAME] [--json] [-r] [-a]` | Print the inbox: one section only (`-s`), as JSON, refresh first (`-r`), include empty sections (`-a`) |
+| `prn list [-s NAME] [--json] [-r] [-a]` | Print the inbox and any unread mentions: one section only (`-s`), as JSON, refresh first (`-r`), include empty sections (`-a`) |
 | `prn refresh` | Poll GitHub now. Notifications go out for anything new |
 | `prn sections list` | Sections in evaluation order, with their filters |
 | `prn sections add NAME [flags]` / `-i` | Add a section with flags, or answer prompts (`-i`). See [Adding sections](#adding-sections-from-the-command-line) |
@@ -289,8 +327,6 @@ sections:                          # checked top to bottom; first match wins
     display: true                  # false: still claims matching PRs, but hides the section everywhere
                                    #        and never sends "New in section" notifications
     menu: rows                     # menu bar dropdown: rows (every PR) | count (one line) | hidden
-    group: My PRs                  # web dashboard: sections with the same group are one table (optional)
-    collapsed: true                # web dashboard: start this section collapsed (optional; your own clicks win)
     filters:
       authors: [group:teammates]
       draft: false
@@ -299,6 +335,19 @@ sections:                          # checked top to bottom; first match wins
 ```
 
 `ignored_reviewers` accepts logins with or without the `[bot]` suffix. `coderabbitai` and `coderabbitai[bot]` both work.
+
+**Dashboard layout.** `group` and `collapsed` only affect the web dashboard. Sections that share a `group` become one table with a status column (approved, open, draft), in the position of the first of them. `collapsed: true` starts a section collapsed, and your own clicks win from then on.
+
+```yaml
+sections:
+  - name: My Approved PRs
+    group: My PRs
+  - name: My Open PRs
+    group: My PRs
+  - name: My Draft PRs
+    group: My PRs
+    collapsed: true
+```
 
 **Dependency bumps** make a good quiet section: define a group of bot logins, then put a section for them just before your catch-all review section.
 
@@ -366,6 +415,8 @@ All filters in a section must match (AND). Inside a list, any one item can match
 | `approved_by` | usernames | Any of these reviewers has approved the PR's **latest commit**. An approval on an older commit doesn't count. Not affected by `ignored_reviewers` |
 | `updated_within_days` | number | Updated within the last N days |
 
+`conflicts` and `ready_to_merge` are the only filters that need GitHub's merge state, which is slow for GitHub to compute. prn only asks for it when a section uses one of them, so adding one makes every poll slower.
+
 Unknown keys and bad values are rejected with the exact location of the problem. If an unknown key is a newer setting, the error message tells you to reinstall.
 
 ### Adding sections from the command line
@@ -413,7 +464,7 @@ Notifications come from **PR Review Notifier**, with its own icon. Clicking one 
 - **Busy polls:** if more than 5 PRs change at once, you get a single summary instead.
 - **First run:** setup's first poll is silent, so PRs that were already open don't flood you.
 - **App alerts:** you also get a notification when you save an invalid `config.yaml`, or when a code update fails to load.
-- **Turning things off:** each event type has its own setting under `settings.notifications`, and each section has its own `notify` option.
+- **Turning things off:** each event type has its own setting under `settings.notifications`, and each section has its own `notify` option. `team_mention: false` silences team mentions only, and they stay in the list.
 
 To check notifications are working, run `prn test-notification`. If nothing appears, allow **PR Review Notifier** under System Settings → Notifications.
 
@@ -428,6 +479,9 @@ macOS labels notifications, Login Items, and Activity Monitor entries with the a
 
 - **Auth:** prn uses `gh auth token`, or `GITHUB_TOKEN` / `GH_TOKEN` if one is set, and talks to GitHub's GraphQL API directly.
 - **Fetching:** each poll runs the smallest set of GitHub searches that covers every section (3 for the default config), keeping each under GitHub's 256-character limit. Filtering then happens locally. That's how prn can tell team requests from direct ones, count approvals, ignore reviewers, and check "reviewed but not approved by me".
+- **GitHub timeouts:** each search page asks for up to 50 PRs. GitHub gives up on a request after about 10 seconds and answers 502 or 504, and a page takes longer the more PRs it holds. When that happens, prn halves the page size, retries from the same place, remembers the smaller size, and grows it back after a stretch of clean polls. GitHub computes `mergeable` and `mergeStateStatus` per PR, which roughly doubles the time, so prn only requests them when a section uses `conflicts` or `ready_to_merge`.
+- **Mentions:** one request per poll (at most once a minute) to GitHub's notifications feed, kept apart from the PR searches. A failing PR poll doesn't stop mentions, and a failing mentions request never stops PR polling.
+- **The dashboard:** the menu bar app also serves it on `127.0.0.1:8787`, from `inbox.json`, `mentions.json` and `seen.json`. Only **Refresh** talks to GitHub.
 - **Polling and live updates:** the menu bar app polls on a timer and writes the results to `inbox.json`. The terminal inbox and the dropdown redraw whenever that file changes. Saving `config.yaml` triggers a full poll, and code changes trigger a restart. The searches in a poll run in parallel.
 - **Files:**
 
@@ -436,8 +490,9 @@ macOS labels notifications, Login Items, and Activity Monitor entries with the a
   | `./config.yaml` | Your config (gitignored) |
   | `~/.config/prn/config-path` | Points the installed command at your config |
   | `~/.local/state/prn/inbox.json` | The rendered inbox |
+  | `~/.local/state/prn/mentions.json` | Unread @mentions from GitHub's notifications feed |
   | `~/.local/state/prn/snapshot.json` | Last-seen PR state, used to detect changes |
-| `~/.local/state/prn/seen.json` | Read/unread state: what each PR looked like when you last opened it |
+  | `~/.local/state/prn/seen.json` | Read and done state: what each PR looked like when you last opened it, and which are done |
   | `~/.local/state/prn/prn.log` | App log (`prn daemon logs`) |
   | `~/.local/state/prn/menubar.out.log` | Output from the menu bar process (startup errors land here) |
   | `~/Library/LaunchAgents/com.prn.menubar.plist` | The login item |
@@ -447,8 +502,12 @@ macOS labels notifications, Login Items, and Activity Monitor entries with the a
 
 Start with `prn doctor`. It checks everything below and tells you what to run.
 
-- **No menu bar icon:** run `prn daemon status` and `prn daemon logs`, and check `~/.local/state/prn/menubar.out.log`. Running `prn menubar` in a terminal shows errors directly.
+- **No menu bar icon:** run `prn daemon status`. If it says running, the icon was probably dropped when the app restarted itself after a code update, so run `prn daemon restart`. Otherwise check `prn daemon logs` and `~/.local/state/prn/menubar.out.log`. Running `prn menubar` in a terminal shows errors directly.
 - **⚠ in the menu bar:** the last poll failed. The line under "PR Review Notifier" at the top of the dropdown says why. Common causes are an invalid config (`prn config validate`) and expired GitHub auth (`gh auth login`).
+- **"GitHub is slow or overloaded (502 …)":** GitHub timed out on a search. prn retries with smaller pages and tries again on the next poll, so it usually clears by itself, and anything that happened meanwhile is notified once a poll succeeds. While it adapts, `prn daemon logs` shows "GitHub timed out on a page of N PRs; trying M". If it keeps failing, check [githubstatus.com](https://www.githubstatus.com).
+- **The dashboard doesn't show a change after an update:** the page is read when the app starts and isn't watched. Run `prn daemon restart`.
+- **"Open dashboard" opens something odd, or `prn web` says the port is in use:** the menu bar app already serves the dashboard on port 8787. `prn web --port 8788` runs a second copy.
+- **The Mentions section is empty:** only unread `mention` and `team_mention` threads on pull requests count, not issues. Opening the PR on GitHub marks the thread read there. `gh api notifications` shows what GitHub has.
 - **Notifications don't appear:** allow **PR Review Notifier** under System Settings → Notifications, then run `prn test-notification`. If `prn doctor` says the app isn't built, run `prn app install`.
 - **Notifications or Login Items still say "Python":** the app isn't being used. Run `prn app install`; it also points the login item at the app.
 - **`prn app install` fails:** make sure the Command Line Tools are installed (`xcode-select --install`) and that `terminal-notifier` is installed (`brew install terminal-notifier`). Then run it again. Until it succeeds, notifications still work through plain terminal-notifier.
@@ -465,7 +524,8 @@ uv run pytest
 ```
 
 - **Tests:** they don't need GitHub or macOS. GitHub responses and macOS tools are faked.
-- **Running from your checkout:** setup's editable install runs your local changes directly, and the menu bar app restarts itself when you save a file under `src/`.
+- **Running from your checkout:** setup's editable install runs your local changes directly, and the menu bar app restarts itself when you save a Python file under `src/` (see [Upgrading](#upgrading) for the icon caveat). To work without disturbing a running menu bar app, develop in a separate `git worktree`.
+- **The dashboard screenshot:** `docs/dashboard.png` is rendered from made-up data, so no real repos or people end up in a public README. Regenerate it after changing the dashboard with `uv run python scripts/make_dashboard_screenshot.py`. It needs Google Chrome (set `CHROME` to use another binary), keeps its config and state in a temp directory, and never reads your real prn state.
 - **Pull requests:** open them from a fork against `main`, and leave **Allow edits from maintainers** ticked so conflicts can be resolved on your branch. Don't commit `config.yaml` or anything with personal usernames or repos; tests use `alice`, `bob`, and `acme/*`.
 
 ### Smoke test on a Mac
@@ -478,3 +538,5 @@ uv run pytest
 6. Review a teammate's PR without approving it, then choose **Refresh now**. It should move to Reviewed Not Approved by Me, with no notification.
 7. Have a teammate re-request your review. Within one poll, you should get a clickable notification, and the PR should move back to Teammates Need Review.
 8. Change `poll_interval_seconds` in `config.yaml` and save. Within about 3 seconds the dropdown should show "Config changed, refreshing…" or a new "Last updated" time.
+9. Click **Open dashboard**. Its sections should match the dropdown. Click **Done** on a row: it disappears, and the badge drops by one. Tick **show done** and click **Undo**.
+10. Have a teammate @mention you on a PR. Within a poll you should get a notification, a **Mentions** block at the top of the dropdown, and a row in the dashboard. Opening the PR on GitHub should clear it on the next poll.
